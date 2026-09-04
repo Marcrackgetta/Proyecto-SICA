@@ -1,0 +1,98 @@
+# ==============================================================================
+# .gitignore - Motor de Reconocimiento Facial (motor_reconimiento_unificado)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Scripts de auditoría, pruebas y depuración ejecutados
+# ------------------------------------------------------------------------------
+audit_debug.py
+audit_debug2.py
+audit_debug3.py
+audit_test_script.py
+
+# Patrones de pruebas y diagnósticos locales
+audit_*.py
+test_*.py
+check_*.py
+debug_*.py
+
+# ------------------------------------------------------------------------------
+# Python: Compilación, Bytecode y Caché
+# ------------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+
+# Empaquetado y Compilación (PyInstaller / cx_Freeze / setuptools)
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+*.spec
+*.exe
+
+# ------------------------------------------------------------------------------
+# Entornos Virtuales
+# ------------------------------------------------------------------------------
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# ------------------------------------------------------------------------------
+# Variables de entorno y credenciales sensibles (¡CRÍTICO!)
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ------------------------------------------------------------------------------
+# Datos y Modelos locales (Ignoramos el contenido, pero mantenemos la estructura)
+# ------------------------------------------------------------------------------
+data/dataset/*
+!data/dataset/.keep
+data/models/*
+!data/models/.keep
+*.pkl
+*.onnx
+
+# ------------------------------------------------------------------------------
+# Logs y Archivos Temporales
+# ------------------------------------------------------------------------------
+*.log
+logs/
+*.tmp
+*.temp
+
+# ------------------------------------------------------------------------------
+# IDEs y Editores de Código
+# ------------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ------------------------------------------------------------------------------
+# Archivos del Sistema Operativo
+# ------------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+desktop.ini
