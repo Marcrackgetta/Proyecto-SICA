@@ -5,6 +5,7 @@
 # ------------------------------------------------------------------------------
 # Scripts de prueba, diagnóstico, simulación y utilidades ejecutadas
 # ------------------------------------------------------------------------------
+audit_full.py
 check_db_state.py
 check_timestamp.py
 create_mock_data.py
@@ -24,6 +25,7 @@ test_marcelo.py
 test_marcelo2.py
 test_postgrest.py
 test_realtime.py
+verify_sync.py
 
 # Patrones generales de pruebas y diagnóstico
 test_*.py
@@ -32,6 +34,7 @@ debug_*.py
 simulate_*.py
 mock_*.py
 audit_*.py
+verify_*.py
 delete_mock*.py
 rewrite_*.py
 
@@ -51,8 +54,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -73,7 +76,7 @@ env.bak/
 venv.bak/
 
 # ------------------------------------------------------------------------------
-# Node.js / Next.js: Compilación, dependencias y caché
+# Node.js / Next.js / React Native: Compilación, dependencias y caché
 # ------------------------------------------------------------------------------
 node_modules/
 .next/
@@ -86,6 +89,18 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 .eslintcache
+
+# Móvil (Expo / React Native)
+.expo/
+web-build/
+expo-env.d.ts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+.metro-health-check*
 
 # ------------------------------------------------------------------------------
 # Datos, modelos y pesos generados localmente
@@ -111,10 +126,11 @@ logs/
 *.temp
 
 # ------------------------------------------------------------------------------
-# IDEs y Editores de Código
+# IDEs, Editores y Asistentes
 # ------------------------------------------------------------------------------
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~

@@ -1,89 +1,79 @@
 # ==============================================================================
-# .gitignore - Motor de Reconocimiento Facial (motor_reconimiento_unificado)
+# .gitignore - Aplicación Móvil SICA (app_sica - Expo / React Native)
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# Scripts de auditoría, pruebas y depuración ejecutados
+# Dependencias
 # ------------------------------------------------------------------------------
-audit_debug.py
-audit_debug2.py
-audit_debug3.py
-audit_test_script.py
-audit_full.py
-verify_sync.py
-
-# Patrones de pruebas y diagnósticos locales
-audit_*.py
-test_*.py
-check_*.py
-debug_*.py
-verify_*.py
-simulate_*.py
+node_modules/
+/.pnp
+.pnp
+.pnp.*
+.pnp.js
 
 # ------------------------------------------------------------------------------
-# Python: Compilación, Bytecode y Caché
+# Expo & Metro
 # ------------------------------------------------------------------------------
-__pycache__/
-*.py[cod]
-*.class
-*.so
-.Python
-
-# Empaquetado y Compilación (PyInstaller / cx_Freeze / setuptools)
-build/
-develop-eggs/
+.expo/
 dist/
-downloads/
-eggs/
-.eggs/
-/lib/
-/lib64/
-parts/
-sdist/
-var/
-*.egg-info/
-.installed.cfg
-*.egg
-*.spec
-*.exe
+web-build/
+expo-env.d.ts
+.metro-health-check*
 
 # ------------------------------------------------------------------------------
-# Entornos Virtuales
+# Artefactos Nativos (Android / iOS)
 # ------------------------------------------------------------------------------
-.venv/
-venv/
-ENV/
-env/
-env.bak/
-venv.bak/
+/ios
+/android
+.kotlin/
+.gradle/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.keystore
+*.mobileprovision
 
 # ------------------------------------------------------------------------------
-# Variables de entorno y credenciales sensibles (¡CRÍTICO!)
+# Scripts de prueba, diagnóstico y utilidades ejecutadas
+# ------------------------------------------------------------------------------
+test_*.js
+test_*.ts
+test_*.tsx
+check_*.js
+check_*.ts
+check_*.tsx
+debug_*.js
+debug_*.ts
+debug_*.tsx
+audit_*.js
+audit_*.ts
+
+# ------------------------------------------------------------------------------
+# Compilación y TypeScript
+# ------------------------------------------------------------------------------
+*.tsbuildinfo
+.eslintcache
+
+# ------------------------------------------------------------------------------
+# Variables de Entorno y Credenciales Sensibles (¡CRÍTICO!)
 # ------------------------------------------------------------------------------
 .env
+.env*
 .env.local
-.env.*
+.env*.local
 !.env.example
 *.pem
-*.key
 
 # ------------------------------------------------------------------------------
-# Datos y Modelos locales (Ignoramos el contenido, pero mantenemos la estructura)
-# ------------------------------------------------------------------------------
-data/dataset/*
-!data/dataset/.keep
-data/models/*
-!data/models/.keep
-*.pkl
-*.onnx
-
-# ------------------------------------------------------------------------------
-# Logs y Archivos Temporales
+# Logs y Archivos de Depuración
 # ------------------------------------------------------------------------------
 *.log
-logs/
-*.tmp
-*.temp
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.pnpm-debug.*
 
 # ------------------------------------------------------------------------------
 # IDEs, Editores y Asistentes

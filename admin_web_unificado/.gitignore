@@ -18,6 +18,10 @@ test_*.js
 test_*.ts
 debug_*.js
 debug_*.ts
+audit_*.js
+audit_*.ts
+verify_*.js
+verify_*.ts
 
 # ------------------------------------------------------------------------------
 # Dependencias
@@ -83,10 +87,11 @@ yarn-error.log*
 .vercel
 
 # ------------------------------------------------------------------------------
-# IDEs y Editores de Código
+# IDEs, Editores y Asistentes
 # ------------------------------------------------------------------------------
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
