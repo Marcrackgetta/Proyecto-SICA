@@ -40,7 +40,10 @@ import AdminManager from "@/components/AdminManager";
 export default function DashboardPage() {
   const [camaras, setCamaras] = useState<any[]>([]);
   const [camaraSel, setCamaraSel] = useState<string | null>(null);
-  const [fecha, setFecha] = useState(new Date().toISOString().split("T")[0]);
+  const [fecha, setFecha] = useState(() => {
+    const d = new Date();
+    return new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split("T")[0];
+  });
   const [horariosConfig, setHorariosConfig] = useState<any>(null);
 
   useEffect(() => {
@@ -93,9 +96,9 @@ export default function DashboardPage() {
         .channel("asistencia-channel")
         .on(
           "postgres_changes",
-          { event: "INSERT", schema: "public", table: "asistencia" },
+          { event: "*", schema: "public", table: "asistencia" },
           () => {
-            // Refrescar estadísticas cuando hay una nueva detección
+            // Refrescar estadísticas cuando hay una nueva detección o actualización
             fetchEstadisticas(camaraSel, fecha);
           }
         )

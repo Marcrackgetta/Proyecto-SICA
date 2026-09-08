@@ -20,7 +20,7 @@
       "Hora_5": {"inicio": "09:50", "fin": "10:30"},
       "Hora_6": {"inicio": "10:30", "fin": "11:10"},
       "Hora_7": {"inicio": "11:10", "fin": "11:50"},
-      "Hora_8": {"inicio": "11:50", "fin": "12:25"}
+      "Hora_8": {"inicio": "11:50", "fin": "23:59"}
     },
     "VESP_BAS": {
       "Hora_1": {"inicio": "12:55", "fin": "13:35"},

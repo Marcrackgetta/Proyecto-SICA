@@ -54,9 +54,10 @@ export default function DashboardScreen() {
     };
   }, [vinculacionStatus, estudiante?.cedula]);
 
-  const fetchUltimaAsistencia = async (cedula: string) => {
+  async function fetchUltimaAsistencia(cedula: string) {
     // Buscar la última asistencia del día
-    const today = new Date().toISOString().split('T')[0];
+    const d = new Date();
+    const today = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
     const { data } = await supabase
       .from('asistencia')
       .select('*')
@@ -74,7 +75,7 @@ export default function DashboardScreen() {
       setUltimoEstado('AUSENTE');
       setUltimaHora('--:--');
     }
-  };
+  }
 
   const handleSolicitar = async () => {
     if (!cedula || !nombreEst) return Alert.alert('Error', 'Ingrese cédula y nombre');

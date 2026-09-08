@@ -28,21 +28,22 @@ CAMERA_SOURCES = [
         "curso": "2_INFO_B",
         "src": 0, 
         "ubicacion": {"latitude": -2.128589, "longitude": -79.931099}
-    },
-    {
-        "camera_id": "CAM_002",
-        "nombre": "Camara Secundaria",
-        "curso": "2_INFO_A",
-        "src": 1, 
-        "ubicacion": {"latitude": -2.128720, "longitude": -79.931061}
-    },
-    {
-        "camera_id": "CAM_003",
-        "nombre": "Camara Terciaria",
-        "curso": "3_INFO_A",
-        "src": 2, 
-        "ubicacion": {"latitude": -2.128720, "longitude": -79.931061}
     }
+    # Para pruebas locales, deshabilitamos las cámaras extras para evitar errores de conexión en bucle
+    # {
+    #     "camera_id": "CAM_002",
+    #     "nombre": "Camara Secundaria",
+    #     "curso": "2_INFO_A",
+    #     "src": 1, 
+    #     "ubicacion": {"latitude": -2.128720, "longitude": -79.931061}
+    # },
+    # {
+    #     "camera_id": "CAM_003",
+    #     "nombre": "Camara Terciaria",
+    #     "curso": "3_INFO_A",
+    #     "src": 2, 
+    #     "ubicacion": {"latitude": -2.128720, "longitude": -79.931061}
+    # }
 ]
 
 # --- HORARIOS DE CLASE (Local / Unificado) ---

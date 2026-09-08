@@ -124,7 +124,7 @@ class EventManager:
                     self.processed_events[date_str][curso_id][block] = {}
 
     def register_recognition(self, identity_uuid: str, camera_id: str) -> None:
-        if identity_uuid in ("unknown", "Desconocido", "Calculando..."):
+        if identity_uuid == "Calculando...":
             return
 
         now = datetime.now()
@@ -141,8 +141,13 @@ class EventManager:
         if not current_block:
             return
 
-        cedula = identity_uuid.split("--")[0] if "--" in identity_uuid else identity_uuid
-        nombre = identity_uuid.split("--")[1].replace("_", " ") if "--" in identity_uuid else identity_uuid
+        # Mapear rostros no reconocidos a una entidad genérica de Intruso
+        if identity_uuid in ("unknown", "Desconocido"):
+            cedula = "unknown_person"
+            nombre = "Visitante / No Reconocido"
+        else:
+            cedula = identity_uuid.split("--")[0] if "--" in identity_uuid else identity_uuid
+            nombre = identity_uuid.split("--")[1].replace("_", " ") if "--" in identity_uuid else identity_uuid
 
         block_memory = self.processed_events[date_str][curso_id].get(current_block, {})
         if cedula in block_memory:
@@ -207,7 +212,7 @@ class EventManager:
 
             self.processed_events[date_str][curso_id].setdefault(block, {})[cedula] = estado
             
-            now_iso = datetime.now().isoformat()
+            now_iso = datetime.now().astimezone().isoformat()
             registros_batch.append({
                 "estudiante_cedula": cedula,
                 "curso_id": curso_id,
@@ -236,7 +241,7 @@ class EventManager:
         estado: str,
         camera_id: str,
     ) -> None:
-        now_iso = datetime.now().isoformat()
+        now_iso = datetime.now().astimezone().isoformat()
         registro = [{
             "estudiante_cedula": cedula,
             "curso_id": curso_id,

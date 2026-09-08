@@ -12,6 +12,7 @@ create_mock_data.py
 debug_flow.py
 delete_mocks.py
 delete_mock_cam.py
+fix.py
 rewrite_event_manager.py
 simulate_event.py
 test_camera_status.py
@@ -35,8 +36,27 @@ simulate_*.py
 mock_*.py
 audit_*.py
 verify_*.py
+fix_*.py
+fix_*.js
+fix_*.ts
+seed_*.py
+seed_*.js
+seed_*.ts
 delete_mock*.py
 rewrite_*.py
+temp_*.py
+tmp_*.py
+
+# ------------------------------------------------------------------------------
+# Bases de datos locales y colas offline (SQLite)
+# ------------------------------------------------------------------------------
+offline_queue.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 
 # ------------------------------------------------------------------------------
 # Python: Compilación, Bytecode y Caché
@@ -124,6 +144,7 @@ expo-env.d.ts
 logs/
 *.tmp
 *.temp
+*.bak
 
 # ------------------------------------------------------------------------------
 # IDEs, Editores y Asistentes

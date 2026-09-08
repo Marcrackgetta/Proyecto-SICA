@@ -49,6 +49,23 @@ debug_*.ts
 debug_*.tsx
 audit_*.js
 audit_*.ts
+verify_*.js
+verify_*.ts
+fix_*.js
+fix_*.ts
+fix_*.tsx
+seed_*.js
+seed_*.ts
+
+# ------------------------------------------------------------------------------
+# Bases de datos locales
+# ------------------------------------------------------------------------------
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 
 # ------------------------------------------------------------------------------
 # Compilación y TypeScript
@@ -74,6 +91,7 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 .pnpm-debug.*
+*.bak
 
 # ------------------------------------------------------------------------------
 # IDEs, Editores y Asistentes

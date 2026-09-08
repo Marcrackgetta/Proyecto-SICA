@@ -78,6 +78,7 @@ class ModelTrainer:
 
         Solo extrae embeddings de fotos nuevas o modificadas.
         Las fotos eliminadas se excluyen automáticamente de la caché.
+        Para proteger la privacidad (PII), las fotos son eliminadas tras su procesamiento.
 
         Args:
             directories: Lista de rutas a carpetas de estudiantes
@@ -93,6 +94,11 @@ class ModelTrainer:
         # 1. Cargar caché del modelo anterior (si existe)
         modelo_anterior = FileManager.load_model(Path(MODEL_PATH))
         cache_anterior = modelo_anterior.get("cache_imagenes", {})
+        
+        # Mapa de encodings anteriores para preservar identidades cuyas fotos ya fueron borradas (seguridad PII)
+        nombres_ant = modelo_anterior.get("names", [])
+        encs_ant = modelo_anterior.get("encodings", [])
+        old_encodings_map = dict(zip(nombres_ant, encs_ant)) if len(nombres_ant) == len(encs_ant) else {}
 
         nueva_cache: dict[str, dict] = {}
         known_encodings: list[np.ndarray] = []
@@ -116,11 +122,14 @@ class ModelTrainer:
             ]
 
             if not imagenes:
-                logger.warning(
-                    f"[Trainer] Carpeta vacía, se omite: {person_dir.name}"
-                )
+                if person_label in old_encodings_map:
+                    known_names.append(person_label)
+                    known_encodings.append(old_encodings_map[person_label])
+                else:
+                    logger.warning(f"[Trainer] Carpeta vacía y sin modelo previo: {person_label}")
                 continue
 
+            # Procesar las imágenes encontradas
             for img_path in imagenes:
                 cache_key = f"{person_label}/{img_path.name}"
 
@@ -160,7 +169,12 @@ class ModelTrainer:
 
             # 3. Promediar embeddings del estudiante
             if embeddings_del_estudiante:
-                avg_embedding = np.mean(embeddings_del_estudiante, axis=0)
+                if person_label in old_encodings_map:
+                    # Combinar con el vector anterior para no perder la identidad original si solo añade una foto
+                    avg_embedding = np.mean([old_encodings_map[person_label], np.mean(embeddings_del_estudiante, axis=0)], axis=0)
+                else:
+                    avg_embedding = np.mean(embeddings_del_estudiante, axis=0)
+                    
                 known_names.append(person_label)
                 known_encodings.append(avg_embedding)
             else:
@@ -168,6 +182,13 @@ class ModelTrainer:
                     f"[Trainer] Sin embeddings válidos para: {person_label}. "
                     "Esta persona no quedará en el modelo."
                 )
+                
+            # 4. POLÍTICA BETA: Borrar fotos para proteger PII de los estudiantes
+            for img_path in imagenes:
+                try:
+                    img_path.unlink()
+                except Exception as e:
+                    logger.error(f"[Trainer] No se pudo eliminar la imagen por PII: {img_path.name} - {e}")
 
         elapsed = time.time() - start_time
         logger.info(

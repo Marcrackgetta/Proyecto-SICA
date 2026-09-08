@@ -4,17 +4,17 @@ import { supabase } from '@/services/supabase';
 interface StudentState {
   estudiante: any | null;
   vinculacionStatus: 'CARGANDO' | 'SIN_VINCULAR' | 'PENDIENTE' | 'VINCULADO';
+  channelSubscription: any | null;
   fetchVinculacion: (repUid: string) => Promise<void>;
   solicitarVinculacion: (repUid: string, correo: string, nombreRep: string, cedula: string, nombreEst: string) => Promise<boolean>;
   suscribirseAvinculacion: (repUid: string) => void;
   desuscribirseAvinculacion: () => void;
 }
 
-let channel: any = null;
-
 export const useStudentStore = create<StudentState>((set, get) => ({
   estudiante: null,
   vinculacionStatus: 'CARGANDO',
+  channelSubscription: null,
   
   fetchVinculacion: async (repUid: string) => {
     set({ vinculacionStatus: 'CARGANDO' });
@@ -72,9 +72,12 @@ export const useStudentStore = create<StudentState>((set, get) => ({
   },
 
   suscribirseAvinculacion: (repUid) => {
-    if (channel) supabase.removeChannel(channel);
+    const { channelSubscription } = get();
+    if (channelSubscription) {
+      supabase.removeChannel(channelSubscription);
+    }
 
-    channel = supabase
+    const newChannel = supabase
       .channel('public:solicitudes_vinculacion')
       .on(
         'postgres_changes',
@@ -86,12 +89,15 @@ export const useStudentStore = create<StudentState>((set, get) => ({
         }
       )
       .subscribe();
+      
+    set({ channelSubscription: newChannel });
   },
 
   desuscribirseAvinculacion: () => {
-    if (channel) {
-      supabase.removeChannel(channel);
-      channel = null;
+    const { channelSubscription } = get();
+    if (channelSubscription) {
+      supabase.removeChannel(channelSubscription);
+      set({ channelSubscription: null });
     }
   }
 }));

@@ -3,7 +3,7 @@
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# Scripts de auditoría, pruebas y depuración ejecutados
+# Scripts de auditoría, pruebas, depuración y utilidades locales
 # ------------------------------------------------------------------------------
 audit_debug.py
 audit_debug2.py
@@ -11,6 +11,7 @@ audit_debug3.py
 audit_test_script.py
 audit_full.py
 verify_sync.py
+fix.py
 
 # Patrones de pruebas y diagnósticos locales
 audit_*.py
@@ -19,6 +20,20 @@ check_*.py
 debug_*.py
 verify_*.py
 simulate_*.py
+fix_*.py
+seed_*.py
+mock_*.py
+
+# ------------------------------------------------------------------------------
+# Bases de datos locales y colas offline (SQLite)
+# ------------------------------------------------------------------------------
+offline_queue.db
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
 
 # ------------------------------------------------------------------------------
 # Python: Compilación, Bytecode y Caché
@@ -84,6 +99,7 @@ data/models/*
 logs/
 *.tmp
 *.temp
+*.bak
 
 # ------------------------------------------------------------------------------
 # IDEs, Editores y Asistentes

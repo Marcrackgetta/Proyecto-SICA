@@ -15,8 +15,9 @@ export default function StudentDetailScreen() {
     fetchHistorial();
   }, [id]);
 
-  const fetchHistorial = async () => {
-    const today = new Date().toISOString().split('T')[0];
+  async function fetchHistorial() {
+    const d = new Date();
+    const today = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
     const { data, error } = await supabase
       .from('asistencia')
       .select('*')
@@ -26,7 +27,7 @@ export default function StudentDetailScreen() {
 
     if (data) setHistorial(data);
     setLoading(false);
-  };
+  }
 
   const getStatusColor = (estado: string) => {
     switch(estado) {

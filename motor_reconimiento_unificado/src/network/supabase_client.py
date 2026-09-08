@@ -2,6 +2,9 @@
 import logging
 import os
 import time
+import json
+import sqlite3
+import threading
 from typing import Any
 
 import requests
@@ -15,15 +18,13 @@ load_dotenv()
 
 class SupabaseClient:
     """
-    Cliente REST puro para comunicarse con la API de Supabase.
+    Cliente REST puro para comunicarse con la API de Supabase con resiliencia offline.
 
     Responsabilidades:
-    - Autenticación y gestión de headers.
-    - Ejecución segura de requests HTTP con timeouts.
-    - Operaciones CRUD básicas sobre las tablas.
-
-    NO contiene lógica de negocio (ej. determinar si alguien es 'Falta'
-    o 'Intruso'). Esa lógica pertenece al EventManager / Orquestador.
+    - Autenticacion y gestion de headers.
+    - Ejecucion segura de requests HTTP con timeouts.
+    - Gestion de cola offline (Store & Forward) para evitar perdida de eventos (BETA).
+    - Operaciones CRUD basicas sobre las tablas.
     """
 
     def __init__(self, timeout: float = 5.0) -> None:
@@ -45,10 +46,88 @@ class SupabaseClient:
             "Prefer": "return=minimal",
         }
         self.is_connected = True
-        logger.info("[Supabase] Cliente REST inicializado correctamente.")
+        
+        # Inicializar cola offline
+        self._init_queue()
+        
+        # Iniciar worker de sincronizacion en background
+        self._sync_thread = threading.Thread(target=self._sync_worker, daemon=True)
+        self._sync_thread.start()
+        
+        logger.info("[Supabase] Cliente REST inicializado correctamente con resiliencia Offline.")
+
+    def _init_queue(self):
+        """Inicializa la base de datos local SQLite para la cola offline."""
+        try:
+            self.db_conn = sqlite3.connect("offline_queue.db", check_same_thread=False)
+            cursor = self.db_conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS queue (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    endpoint TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    upsert BOOLEAN NOT NULL
+                )
+            ''')
+            self.db_conn.commit()
+        except Exception as e:
+            logger.error(f"[Supabase] Error inicializando cola offline: {e}")
+
+    def _push_to_queue(self, endpoint: str, payload: dict | list, upsert: bool):
+        """Guarda un evento fallido en la base de datos local."""
+        try:
+            cursor = self.db_conn.cursor()
+            cursor.execute(
+                "INSERT INTO queue (endpoint, payload, upsert) VALUES (?, ?, ?)",
+                (endpoint, json.dumps(payload), upsert)
+            )
+            self.db_conn.commit()
+            logger.warning(f"[Supabase] Evento guardado en cola offline. Destino: {endpoint}")
+        except Exception as e:
+            logger.error(f"[Supabase] Error guardando en cola offline: {e}")
+
+    def _sync_worker(self):
+        """Hilo en background que reintenta enviar la cola offline cuando hay conexion."""
+        while True:
+            time.sleep(30)
+            if not self.is_connected:
+                continue
+                
+            try:
+                cursor = self.db_conn.cursor()
+                cursor.execute("SELECT id, endpoint, payload, upsert FROM queue ORDER BY id ASC LIMIT 50")
+                rows = cursor.fetchall()
+                
+                if not rows:
+                    continue
+                    
+                logger.info(f"[Supabase] Intentando sincronizar {len(rows)} eventos desde cola offline...")
+                
+                for row_id, endpoint, payload_str, upsert in rows:
+                    payload = json.loads(payload_str)
+                    
+                    # Intentamos enviar directamente sin volver a encolar si falla
+                    url = f"{self.base_url}/{endpoint}"
+                    headers = self.headers.copy()
+                    if upsert:
+                        headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+                        
+                    try:
+                        res = requests.post(url, headers=headers, json=payload, timeout=self.timeout)
+                        res.raise_for_status()
+                        
+                        # Si tiene exito, borramos de la cola
+                        cursor.execute("DELETE FROM queue WHERE id = ?", (row_id,))
+                        self.db_conn.commit()
+                    except Exception as e:
+                        logger.error(f"[Supabase] Sincronizacion fallida para ID {row_id}, se reintentara luego. Error: {e}")
+                        break # Si uno falla por red, rompemos el ciclo y esperamos al proximo tick
+                        
+            except Exception as e:
+                logger.error(f"[Supabase] Error en worker de sincronizacion: {e}")
 
     def _get(self, endpoint: str) -> list[dict[str, Any]]:
-        """Realiza una petición GET genérica con manejo de errores."""
+        """Realiza una peticion GET generica con manejo de errores."""
         if not self.is_connected:
             return []
 
@@ -62,7 +141,7 @@ class SupabaseClient:
             return []
 
     def _post(self, endpoint: str, payload: dict | list, upsert: bool = False) -> bool:
-        """Realiza una petición POST genérica (Insert / Upsert)."""
+        """Realiza una peticion POST generica (Insert / Upsert). Si falla por red, encola el evento."""
         if not self.is_connected:
             return False
 
@@ -78,18 +157,31 @@ class SupabaseClient:
             )
             res.raise_for_status()
             return True
+        except requests.exceptions.HTTPError as e:
+            # Si es un error 4xx (cliente, ej. FK violation), NO lo reintentamos offline porque siempre fallara.
+            if 400 <= e.response.status_code < 500:
+                logger.error(f"[Supabase] Error 4xx en POST {endpoint}: {e.response.text}")
+                return False
+            else:
+                logger.error(f"[Supabase] Error 5xx en POST {endpoint}: {e}. Guardando offline...")
+                self._push_to_queue(endpoint, payload, upsert)
+                return False
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[Supabase] Error de red en POST {endpoint}: {e}. Guardando offline...")
+            self._push_to_queue(endpoint, payload, upsert)
+            return False
         except Exception as e:
-            logger.error(f"[Supabase] Error en POST {endpoint}: {e}")
+            logger.error(f"[Supabase] Error desconocido en POST {endpoint}: {e}")
             return False
 
     # ------------------------------------------------------------------
-    # Operaciones Específicas
+    # Operaciones Especificas
     # ------------------------------------------------------------------
 
     def set_camera_status(
         self, camera_id: str, is_active: bool, ubicacion: dict | None = None
     ) -> None:
-        """Actualiza el estado (activa/inactiva) de una cámara."""
+        """Actualiza el estado (activa/inactiva) de una camara."""
         payload = {"id": camera_id, "activa": is_active}
         if ubicacion:
             payload["ubicacion"] = ubicacion
@@ -97,7 +189,7 @@ class SupabaseClient:
         success = self._post("camaras?on_conflict=id", payload, upsert=True)
         if success:
             estado_str = "ENCENDIDA" if is_active else "APAGADA"
-            logger.info(f"[Supabase] Cámara {camera_id} actualizada a: {estado_str}")
+            logger.info(f"[Supabase] Camara {camera_id} actualizada a: {estado_str}")
 
     def fetch_cursos(self) -> list[dict[str, Any]]:
         """Obtiene la lista de cursos registrados."""
@@ -108,7 +200,7 @@ class SupabaseClient:
         return self._get("estudiantes?select=cedula,curso_id,representante_uid")
 
     def fetch_asistencia_hoy(self, fecha: str) -> list[dict[str, Any]]:
-        """Obtiene los registros de asistencia de un día específico."""
+        """Obtiene los registros de asistencia de un dia especifico."""
         return self._get(f"asistencia?fecha=eq.{fecha}&select=estudiante_cedula,estado,hora_clase")
 
     def registrar_asistencia_batch(self, registros: list[dict[str, Any]]) -> bool:
@@ -119,6 +211,16 @@ class SupabaseClient:
         if not registros:
             return True
 
-        # El parámetro on_conflict define las columnas que forman la clave única
+        # Auto-sembrar estudiantes para evitar violaciones de llave foránea (Foreign Key 409)
+        # Esto asegura que si el Motor reconoce a un estudiante local que no está en la BD, lo crea.
+        for r in registros:
+            cedula = r.get("estudiante_cedula")
+            curso = r.get("curso_id")
+            if cedula:
+                # Upsert de emergencia para el estudiante.
+                # Nota: la tabla real de los usuarios en supabase tiene 'nombre', no 'nombre_estudiante' (basado en esquema real)
+                self._post("estudiantes?on_conflict=cedula", [{"cedula": cedula, "nombre": f"Registrado Automáticamente ({cedula})", "curso_id": curso}], upsert=True)
+
+        # El parametro on_conflict define las columnas que forman la clave unica
         endpoint = "asistencia?on_conflict=estudiante_cedula,fecha,hora_clase,curso_id"
         return self._post(endpoint, registros, upsert=True)
