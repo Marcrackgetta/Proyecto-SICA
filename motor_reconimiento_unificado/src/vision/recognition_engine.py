@@ -97,7 +97,11 @@ class RecognitionEngine:
                 cached = self.track_cache[cache_key]
                 time_since_validation = current_time - cached.get("last_validation", 0)
 
-                ttl = 3.0 if cached["identity_uuid"] != "unknown" else 1.5
+                # Si está analizando, reintenta lo más rápido posible.
+                if cached.get("identity_uuid") == "Analizando...":
+                    ttl = 0.0
+                else:
+                    ttl = 3.0 if cached["identity_uuid"] != "unknown" else 1.5
 
                 if time_since_validation > ttl:
                     needs_extraction = True
@@ -113,11 +117,13 @@ class RecognitionEngine:
                 use_cache = True
 
             if use_cache and not needs_extraction:
-                face.identity_uuid = self.track_cache[cache_key]["identity_uuid"]
+                cached_id = self.track_cache[cache_key]["identity_uuid"]
+                face.identity_uuid = cached_id
                 face.confidence = self.track_cache[cache_key]["confidence"]
-                face.recognition_state = (
-                    "RECOGNIZED" if face.identity_uuid != "unknown" else "UNKNOWN"
-                )
+                if cached_id == "Analizando...":
+                    face.recognition_state = "ANALYZING"
+                else:
+                    face.recognition_state = "RECOGNIZED" if cached_id != "unknown" else "UNKNOWN"
                 continue
 
             # --- Extracción y comparación ---
@@ -125,14 +131,18 @@ class RecognitionEngine:
             extraction_done_this_frame = True
 
             if face.embedding is None:
-                self.track_cache[cache_key] = {
-                    "identity_uuid": "unknown",
-                    "confidence": 0.0,
-                    "last_validation": current_time,
-                }
-                face.identity_uuid = "unknown"
-                face.confidence = 0.0
-                face.recognition_state = "UNKNOWN"
+                # Si falla la extracción, mantenemos el estado previo o iniciamos como Analizando
+                if cache_key not in self.track_cache:
+                    self.track_cache[cache_key] = {
+                        "identity_uuid": "Analizando...",
+                        "confidence": 0.0,
+                        "last_validation": current_time,
+                        "unknown_attempts": 0
+                    }
+                cached_id = self.track_cache[cache_key]["identity_uuid"]
+                face.identity_uuid = cached_id
+                face.confidence = self.track_cache[cache_key]["confidence"]
+                face.recognition_state = "ANALYZING" if cached_id == "Analizando..." else "UNKNOWN"
                 continue
 
             best_similarity = -1.0
@@ -145,16 +155,29 @@ class RecognitionEngine:
 
             is_recognized = best_index >= 0 and best_similarity >= self.threshold
 
-            face.identity_uuid = (
-                self.known_names[best_index] if is_recognized else "unknown"
-            )
+            if is_recognized:
+                new_identity = self.known_names[best_index]
+                new_state = "RECOGNIZED"
+                attempts = 0
+            else:
+                prev_attempts = self.track_cache.get(cache_key, {}).get("unknown_attempts", 0)
+                attempts = prev_attempts + 1
+                if attempts >= 3:
+                    new_identity = "unknown"
+                    new_state = "UNKNOWN"
+                else:
+                    new_identity = "Analizando..."
+                    new_state = "ANALYZING"
+
+            face.identity_uuid = new_identity
             face.confidence = round(best_similarity * 100, 2)
-            face.recognition_state = "RECOGNIZED" if is_recognized else "UNKNOWN"
+            face.recognition_state = new_state
 
             self.track_cache[cache_key] = {
-                "identity_uuid": face.identity_uuid,
+                "identity_uuid": new_identity,
                 "confidence": face.confidence,
                 "last_validation": current_time,
+                "unknown_attempts": attempts
             }
 
         # --- Purga de caché por tamaño ---

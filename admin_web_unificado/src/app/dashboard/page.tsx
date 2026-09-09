@@ -75,11 +75,14 @@ export default function DashboardPage() {
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "camaras" },
-        () => {
+        (payload) => {
+          console.log(`[Supabase Realtime] Cambio recibido: camaras`, payload.new);
           fetchCamaras();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') console.log("[Supabase Realtime] Subscrito a camaras");
+      });
 
     return () => {
       supabase.removeChannel(camarasChannel);
@@ -89,20 +92,24 @@ export default function DashboardPage() {
   // Se ejecuta cuando cambias manualmente de cámara o de fecha
   useEffect(() => {
     if (camaraSel) {
+      console.log(`[Dashboard] Sincronizando datos para cámara: ${camaraSel}`);
       fetchEstadisticas(camaraSel, fecha);
 
       // --- NUEVO: Supabase Realtime para la Asistencia ---
       const channel = supabase
-        .channel("asistencia-channel")
+        .channel(`asistencia-channel-${camaraSel}`)
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "asistencia" },
-          () => {
+          (payload) => {
+            console.log(`[Supabase Realtime] Cambio recibido: asistencia`, payload.new);
             // Refrescar estadísticas cuando hay una nueva detección o actualización
             fetchEstadisticas(camaraSel, fecha);
           }
         )
-        .subscribe();
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') console.log(`[Supabase Realtime] Subscrito a asistencia para cámara ${camaraSel}`);
+        });
 
       return () => {
         supabase.removeChannel(channel);
@@ -123,8 +130,15 @@ export default function DashboardPage() {
   };
 
   const fetchCamaras = async () => {
-    const { data } = await supabase.from("camaras").select("*");
-    if (data) setCamaras(data);
+    const { data, error } = await supabase.from("camaras").select("*").order("id");
+    if (error) {
+      console.error("[Supabase] Error consultando camaras:", error);
+      return;
+    }
+    if (data) {
+      console.log(`[Supabase] Consulta camaras: OK — ${data.length} registros`);
+      setCamaras(data);
+    }
   };
 
   const fetchEstadisticas = async (camaraId: string, date: string) => {
@@ -134,12 +148,19 @@ export default function DashboardPage() {
     setTablaRegistros([]);
     // -------------------------------------------
     // 1. Obtener el curso vinculado a la cámara
-    const { data: curso } = await supabase
+    const { data: curso, error: errCurso } = await supabase
       .from("cursos")
       .select("id")
       .eq("camara_id", camaraId)
       .single();
+    
+    if (errCurso) {
+      console.warn(`[Supabase] No se encontro curso para la cámara ${camaraId}`);
+      return;
+    }
     if (!curso) return;
+
+    console.log(`[Supabase] Curso vinculado a ${camaraId}: ${curso.id}`);
 
     let HORAS_CLASE: string[] = [];
     if (horariosConfig) {
@@ -150,8 +171,8 @@ export default function DashboardPage() {
       HORAS_CLASE = ["Hora_1", "Hora_2", "Hora_3", "Hora_4", "Recreo", "Hora_5", "Hora_6", "Hora_7", "Hora_8"];
     }
 
-    // 2. Obtener toda la asistencia de ese curso en esa fecha (incluyendo el nombre del estudiante si existe)
-      const { data: asistencia } = await supabase
+    // 2. Obtener toda la asistencia de ese curso en esa fecha
+      const { data: asistencia, error: errAsist } = await supabase
         .from("asistencia")
         .select(
           "estado, hora_clase, estudiante_cedula, timestamp_deteccion, estudiantes(nombre)",
@@ -160,7 +181,13 @@ export default function DashboardPage() {
         .eq("fecha", date)
         .order("hora_clase", { ascending: true });
 
+      if (errAsist) {
+        console.error("[Supabase] Error al consultar asistencias:", errAsist);
+        return;
+      }
+
       if (asistencia) {
+        console.log(`[Supabase] Consulta asistencia: OK — ${asistencia.length} registros para ${curso.id}`);
         // A. Calcular Totales Diarios
         const counts = { Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
 

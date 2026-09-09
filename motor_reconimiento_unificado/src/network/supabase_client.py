@@ -27,7 +27,7 @@ class SupabaseClient:
     - Operaciones CRUD basicas sobre las tablas.
     """
 
-    def __init__(self, timeout: float = 5.0) -> None:
+    def __init__(self, timeout: float = 15.0) -> None:
         raw_url = os.getenv("SUPABASE_URL")
         self.api_key = os.getenv("SUPABASE_KEY")
         self.timeout = timeout
@@ -91,7 +91,13 @@ class SupabaseClient:
         while True:
             time.sleep(30)
             if not self.is_connected:
-                continue
+                # Intentar recuperar conexión
+                try:
+                    res = requests.get(self.base_url, timeout=3.0)
+                    self.is_connected = True
+                    logger.info("[Supabase] Conexión recuperada. Retomando sincronización.")
+                except requests.exceptions.RequestException:
+                    continue
                 
             try:
                 cursor = self.db_conn.cursor()
@@ -119,6 +125,7 @@ class SupabaseClient:
                         # Si tiene exito, borramos de la cola
                         cursor.execute("DELETE FROM queue WHERE id = ?", (row_id,))
                         self.db_conn.commit()
+                        logger.info(f"[Supabase] Sincronizacion exitosa desde cola para {endpoint}.")
                     except Exception as e:
                         logger.error(f"[Supabase] Sincronizacion fallida para ID {row_id}, se reintentara luego. Error: {e}")
                         break # Si uno falla por red, rompemos el ciclo y esperamos al proximo tick
@@ -140,22 +147,28 @@ class SupabaseClient:
             logger.error(f"[Supabase] Error en GET {endpoint}: {e}")
             return []
 
-    def _post(self, endpoint: str, payload: dict | list, upsert: bool = False) -> bool:
+    def _post(self, endpoint: str, payload: dict | list, upsert: bool = False, ignore_duplicates: bool = False) -> bool:
         """Realiza una peticion POST generica (Insert / Upsert). Si falla por red, encola el evento."""
-        if not self.is_connected:
-            return False
-
         url = f"{self.base_url}/{endpoint}"
         headers = self.headers.copy()
 
         if upsert:
             headers["Prefer"] = "resolution=merge-duplicates,return=minimal"
+        elif ignore_duplicates:
+            headers["Prefer"] = "resolution=ignore-duplicates,return=minimal"
+
+        if not self.is_connected:
+            logger.warning(f"[Supabase] Sin conexion. Guardando evento offline para {endpoint}...")
+            self._push_to_queue(endpoint, payload, upsert)
+            return False
 
         try:
+            logger.info(f"[Supabase] Enviando datos a Supabase ({endpoint})...")
             res = requests.post(
                 url, headers=headers, json=payload, timeout=self.timeout
             )
             res.raise_for_status()
+            logger.info(f"[Supabase] Evento enviado correctamente a {endpoint}.")
             return True
         except requests.exceptions.HTTPError as e:
             # Si es un error 4xx (cliente, ej. FK violation), NO lo reintentamos offline porque siempre fallara.
@@ -167,7 +180,9 @@ class SupabaseClient:
                 self._push_to_queue(endpoint, payload, upsert)
                 return False
         except requests.exceptions.RequestException as e:
-            logger.error(f"[Supabase] Error de red en POST {endpoint}: {e}. Guardando offline...")
+            # Capturamos timeouts y problemas de red reales
+            logger.warning(f"[Supabase] Problema de red: {type(e).__name__}. Guardando offline...")
+            self.is_connected = False
             self._push_to_queue(endpoint, payload, upsert)
             return False
         except Exception as e:
@@ -211,15 +226,17 @@ class SupabaseClient:
         if not registros:
             return True
 
-        # Auto-sembrar estudiantes para evitar violaciones de llave foránea (Foreign Key 409)
-        # Esto asegura que si el Motor reconoce a un estudiante local que no está en la BD, lo crea.
+        # Auto-sembrar estudiantes para evitar violaciones de llave foránea
         for r in registros:
             cedula = r.get("estudiante_cedula")
+            nombre = r.pop("estudiante_nombre", None)
             curso = r.get("curso_id")
+            
+            # Si cedula es None o vacía (caso Intruso sin id), NO sembrar en estudiantes
             if cedula:
-                # Upsert de emergencia para el estudiante.
-                # Nota: la tabla real de los usuarios en supabase tiene 'nombre', no 'nombre_estudiante' (basado en esquema real)
-                self._post("estudiantes?on_conflict=cedula", [{"cedula": cedula, "nombre": f"Registrado Automáticamente ({cedula})", "curso_id": curso}], upsert=True)
+                nombre_real = nombre if nombre and nombre != cedula else f"Registrado Automáticamente ({cedula})"
+                # Solo inserta si no existe, respetando el nombre manual si ya estaba
+                self._post("estudiantes?on_conflict=cedula", [{"cedula": cedula, "nombre": nombre_real, "curso_id": curso}], ignore_duplicates=True)
 
         # El parametro on_conflict define las columnas que forman la clave unica
         endpoint = "asistencia?on_conflict=estudiante_cedula,fecha,hora_clase,curso_id"

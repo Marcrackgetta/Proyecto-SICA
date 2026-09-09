@@ -66,9 +66,30 @@ class FaceTracker:
         if tracked.tracker_id is None or len(tracked) == 0:
             return context
 
-        for face, track_id in zip(context.faces, tracked.tracker_id):
-            face.track_id = int(track_id)
-            self.generated_ids.add(face.track_id)
+        def compute_iou(box1, box2):
+            xA = max(box1[0], box2[0])
+            yA = max(box1[1], box2[1])
+            xB = min(box1[2], box2[2])
+            yB = min(box1[3], box2[3])
+            interArea = max(0, xB - xA) * max(0, yB - yA)
+            box1Area = (box1[2] - box1[0]) * (box1[3] - box1[1])
+            box2Area = (box2[2] - box2[0]) * (box2[3] - box2[1])
+            iou = interArea / float(box1Area + box2Area - interArea)
+            return iou
+
+        for t_xyxy, track_id in zip(tracked.xyxy, tracked.tracker_id):
+            best_iou = 0.0
+            best_face = None
+            for face in context.faces:
+                f_xyxy = [face.left, face.top, face.right, face.bottom]
+                iou = compute_iou(t_xyxy, f_xyxy)
+                if iou > best_iou:
+                    best_iou = iou
+                    best_face = face
+            
+            if best_face is not None and best_iou > 0.3:
+                best_face.track_id = int(track_id)
+                self.generated_ids.add(best_face.track_id)
 
         return context
 

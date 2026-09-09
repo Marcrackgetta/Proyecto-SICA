@@ -183,11 +183,17 @@ class FileManager:
             )
             return data
 
+        except EOFError:
+            logger.info("[FileManager] Modelo vacío. Iniciando desde cero.")
+            return {"names": [], "encodings": [], "cache_imagenes": {}}
         except Exception as e:
-            logger.warning(
-                f"[FileManager] Modelo corrupto o incompatible ({e}). "
-                "Iniciando desde cero."
-            )
+            if file_path.stat().st_size == 0:
+                logger.info("[FileManager] Archivo de modelo vacío. Iniciando desde cero.")
+            else:
+                logger.info(
+                    f"[FileManager] El modelo actual será reconstruido ({e}). "
+                    "Iniciando desde cero."
+                )
             return {"names": [], "encodings": [], "cache_imagenes": {}}
 
     @staticmethod
@@ -196,6 +202,7 @@ class FileManager:
         Serializa y guarda el modelo en disco con pickle.
 
         Crea los directorios intermedios si no existen.
+        Usa escritura atómica para evitar corromper el modelo si hay un corte.
 
         Returns:
             True si el guardado fue exitoso.
@@ -203,8 +210,14 @@ class FileManager:
         file_path = Path(file_path)
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(file_path, "wb") as f:
+            tmp_path = file_path.with_suffix(".tmp")
+            
+            with open(tmp_path, "wb") as f:
                 pickle.dump(data, f)
+                
+            # Reemplazo atomico (seguro contra fallos electricos/interrupciones)
+            tmp_path.replace(file_path)
+            
             logger.info(
                 f"[FileManager] Modelo guardado en {file_path} "
                 f"({len(data.get('names', []))} personas)."
@@ -212,4 +225,9 @@ class FileManager:
             return True
         except Exception as e:
             logger.error(f"[FileManager] Error al guardar el modelo: {e}")
+            if 'tmp_path' in locals() and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except:
+                    pass
             return False

@@ -66,10 +66,25 @@ class EventManager:
         self.curso_to_estudiantes.clear()
         self.todas_las_cedulas.clear()
 
+        # Prioridad a configuración local (Edge)
+        try:
+            from src.utils.config import CAMERA_SOURCES
+            for cam in CAMERA_SOURCES:
+                c_id = cam.get("camera_id")
+                c_curso = cam.get("curso")
+                if c_id and c_curso:
+                    self.cam_to_curso[c_id] = c_curso
+                    self.curso_to_estudiantes.setdefault(c_curso, [])
+        except Exception:
+            pass
+
         for c in cursos:
-            if c.get("camara_id") and c.get("id"):
-                self.cam_to_curso[c["camara_id"]] = c["id"]
-                self.curso_to_estudiantes[c["id"]] = []
+            c_id = c.get("id")
+            c_cam = c.get("camara_id")
+            if c_id:
+                self.curso_to_estudiantes.setdefault(c_id, [])
+                if c_cam and c_cam not in self.cam_to_curso:
+                    self.cam_to_curso[c_cam] = c_id
 
         for e in estudiantes:
             curso_id = e.get("curso_id")
@@ -123,8 +138,8 @@ class EventManager:
                 for block in horario.keys():
                     self.processed_events[date_str][curso_id][block] = {}
 
-    def register_recognition(self, identity_uuid: str, camera_id: str) -> None:
-        if identity_uuid == "Calculando...":
+    def register_recognition(self, identity_uuid: str, camera_id: str, track_id: int = None) -> None:
+        if identity_uuid in ("Calculando...", "Analizando..."):
             return
 
         now = datetime.now()
@@ -143,18 +158,20 @@ class EventManager:
 
         # Mapear rostros no reconocidos a una entidad genérica de Intruso
         if identity_uuid in ("unknown", "Desconocido"):
-            cedula = "unknown_person"
+            # Usar track_id para permitir distinguir entre múltiples intrusos (o el mismo que vuelve) en memoria
+            track_suffix = f"_{track_id}" if track_id is not None else "_untracked"
+            cedula_memoria = f"unknown_person{track_suffix}"
             nombre = "Visitante / No Reconocido"
         else:
-            cedula = identity_uuid.split("--")[0] if "--" in identity_uuid else identity_uuid
+            cedula_memoria = identity_uuid.split("--")[0] if "--" in identity_uuid else identity_uuid
             nombre = identity_uuid.split("--")[1].replace("_", " ") if "--" in identity_uuid else identity_uuid
 
         block_memory = self.processed_events[date_str][curso_id].get(current_block, {})
-        if cedula in block_memory:
+        if cedula_memoria in block_memory:
             return
 
         estudiantes_curso = [e["cedula"] for e in self.curso_to_estudiantes.get(curso_id, [])]
-        is_enrolled = cedula in estudiantes_curso
+        is_enrolled = cedula_memoria in estudiantes_curso
 
         estado = "Intruso"
         if is_enrolled:
@@ -169,8 +186,9 @@ class EventManager:
             else:
                 estado = "Atrasado"
 
-        self.processed_events[date_str][curso_id].setdefault(current_block, {})[cedula] = estado
-        self._dispatch_event(cedula, nombre, curso_id, date_str, current_block, estado, camera_id)
+        self.processed_events[date_str][curso_id].setdefault(current_block, {})[cedula_memoria] = estado
+        logger.info(f"[Supabase] Preparando evento: {estado} para {nombre} ({cedula_memoria})")
+        self._dispatch_event(cedula_memoria, nombre, curso_id, date_str, current_block, estado, camera_id)
 
     def check_schedules(self) -> None:
         now = datetime.now()
@@ -182,13 +200,15 @@ class EventManager:
             past_blocks = self._get_past_blocks(now, horario)
 
             for block in past_blocks:
-                closure_key = f"{date_str}_{curso_id}_{block}"
-                if closure_key in self.closed_blocks:
-                    continue
-
-                self._consolidate_block(date_str, curso_id, block, horario)
-                self.closed_blocks.add(closure_key)
-                logger.info(f"[EventManager] Bloque consolidado y cerrado: {closure_key}")
+                block_memory = self.processed_events[date_str][curso_id].get(block, {})
+                for est in self.curso_to_estudiantes.get(curso_id, []):
+                    cedula = est["cedula"]
+                    nombre = est.get("nombre", cedula)
+                    if cedula not in block_memory:
+                        estado = "Falto"
+                        self.processed_events[date_str][curso_id].setdefault(block, {})[cedula] = estado
+                        logger.info(f"[Supabase] Preparando evento por defecto: {estado} para {nombre} ({cedula})")
+                        self._dispatch_event(cedula, nombre, curso_id, date_str, block, estado, None)
 
     def _consolidate_block(self, date_str: str, curso_id: str, block: str, horario: dict) -> None:
         block_memory = self.processed_events[date_str][curso_id].get(block, {})
@@ -242,8 +262,13 @@ class EventManager:
         camera_id: str,
     ) -> None:
         now_iso = datetime.now().astimezone().isoformat()
+        
+        # Si es un intruso, no lo mandamos a la tabla estudiantes, mandamos NULL como estudiante_cedula
+        db_cedula = None if cedula.startswith("unknown_person") else cedula
+        
         registro = [{
-            "estudiante_cedula": cedula,
+            "estudiante_cedula": db_cedula,
+            "estudiante_nombre": nombre,
             "curso_id": curso_id,
             "fecha": fecha,
             "hora_clase": hora_clase,
@@ -258,4 +283,4 @@ class EventManager:
         if estado in ("Presente", "Atrasado"):
             self.notif.notificar_estudiante_presente(cedula, nombre, curso_id)
         elif estado == "Intruso":
-            self.notif.notificar_intruso(camera_id, f"Curso {curso_id}")
+            self.notif.notificar_intruso(camera_id or "Desconocida", f"Curso {curso_id}")

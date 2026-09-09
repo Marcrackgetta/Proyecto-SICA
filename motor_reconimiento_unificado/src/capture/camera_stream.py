@@ -101,19 +101,33 @@ class CameraStream:
                     self.cap = cv2.VideoCapture(self.source, self.backend)
 
                     if self.cap is not None and self.cap.isOpened():
-                        self.is_connected = True
-                        width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        logger.info(
-                            f"[{self.camera_id}] Conexión exitosa. "
-                            f"Resolución: {width}x{height}"
-                        )
+                        # Verificar que realmente podemos leer un frame
+                        success, frame = self.cap.read()
+                        if success:
+                            self.is_connected = True
+                            self.reconnect_delay = 2  # Reset backoff on success
+                            width = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                            height = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                            logger.info(
+                                f"[{self.camera_id}] Conexión exitosa. "
+                                f"Resolución: {width}x{height}"
+                            )
+                            with self.frame_lock:
+                                self.latest_frame = frame
+                                self.frame_id += 1
+                        else:
+                            self.cap.release()
+                            self.cap = None
+                            self.reconnect_delay = min(60, self.reconnect_delay * 2) # Backoff
+                            logger.warning(f"[{self.camera_id}] Cámara abierta pero sin frames. Próximo intento en {self.reconnect_delay}s.")
                     else:
                         if self.cap:
                             self.cap.release()
                             self.cap = None
+                        self.reconnect_delay = min(60, self.reconnect_delay * 2) # Backoff
+                        logger.warning(f"[{self.camera_id}] Falló conexión. Próximo intento en {self.reconnect_delay}s.")
 
-                time.sleep(0.01)  # Evitar CPU al 100% durante espera de reconexión
+                time.sleep(0.1)  # Evitar CPU al 100% durante espera de reconexión
 
     def get_frame(self) -> np.ndarray | None:
         """

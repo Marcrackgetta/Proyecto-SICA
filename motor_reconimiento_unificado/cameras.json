@@ -1,0 +1,32 @@
+[
+    {
+        "camera_id": "CAM_001",
+        "nombre": "Camara 2_INFO_B",
+        "curso": "2_INFO_B",
+        "src": 0,
+        "ubicacion": {
+            "latitude": -2.128589,
+            "longitude": -79.931099
+        }
+    },
+    {
+        "camera_id": "CAM_002",
+        "nombre": "Camara 2_INFO_A",
+        "curso": "2_INFO_A",
+        "src": 1,
+        "ubicacion": {
+            "latitude": -2.128589,
+            "longitude": -79.931099
+        }
+    },
+    {
+        "camera_id": "CAM_003",
+        "nombre": "Camara 3_INFO_B",
+        "curso": "3_INFO_B",
+        "src": 2,
+        "ubicacion": {
+            "latitude": -2.128589,
+            "longitude": -79.931099
+        }
+    }
+]

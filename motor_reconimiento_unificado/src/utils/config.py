@@ -1,5 +1,4 @@
-# src/utils/config.py
-import os
+﻿import os
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -19,32 +18,11 @@ DATASET_DIR = str(BASE_DIR / "data" / "dataset")
 MODEL_PATH = str(BASE_DIR / "data" / "models" / "encodings.pkl")
 
 # --- CONFIGURACIÓN DE CÁMARAS Y CURSOS ---
-# Asocia la cámara con un curso específico. 
-# En el futuro, esto podría consultarse desde Supabase, pero por ahora se mantiene local.
-CAMERA_SOURCES = [
-    {
-        "camera_id": "CAM_001",
-        "nombre": "Camara Principal",
-        "curso": "2_INFO_B",
-        "src": 0, 
-        "ubicacion": {"latitude": -2.128589, "longitude": -79.931099}
-    }
-    # Para pruebas locales, deshabilitamos las cámaras extras para evitar errores de conexión en bucle
-    # {
-    #     "camera_id": "CAM_002",
-    #     "nombre": "Camara Secundaria",
-    #     "curso": "2_INFO_A",
-    #     "src": 1, 
-    #     "ubicacion": {"latitude": -2.128720, "longitude": -79.931061}
-    # },
-    # {
-    #     "camera_id": "CAM_003",
-    #     "nombre": "Camara Terciaria",
-    #     "curso": "3_INFO_A",
-    #     "src": 2, 
-    #     "ubicacion": {"latitude": -2.128720, "longitude": -79.931061}
-    # }
-]
+from src.utils.cameras_config import load_cameras, save_cameras
+
+# Ya no hardcodeamos CAMERA_SOURCES aquí, se lee desde cameras.json
+# Para mantener compatibilidad si algún módulo lo importa directo al arranque:
+CAMERA_SOURCES = load_cameras()
 
 # --- HORARIOS DE CLASE (Local / Unificado) ---
 # Define los períodos de consolidación del modelo híbrido.
