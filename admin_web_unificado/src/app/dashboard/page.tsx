@@ -44,6 +44,7 @@ export default function DashboardPage() {
     const d = new Date();
     return new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split("T")[0];
   });
+  const [jornada, setJornada] = useState("Matutina");
   const [horariosConfig, setHorariosConfig] = useState<any>(null);
 
   useEffect(() => {
@@ -89,11 +90,11 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // Se ejecuta cuando cambias manualmente de cámara o de fecha
+  // Se ejecuta cuando cambias manualmente de cámara, fecha o jornada
   useEffect(() => {
     if (camaraSel) {
       console.log(`[Dashboard] Sincronizando datos para cámara: ${camaraSel}`);
-      fetchEstadisticas(camaraSel, fecha);
+      fetchEstadisticas(camaraSel, fecha, jornada);
 
       // --- NUEVO: Supabase Realtime para la Asistencia ---
       const channel = supabase
@@ -104,7 +105,7 @@ export default function DashboardPage() {
           (payload) => {
             console.log(`[Supabase Realtime] Cambio recibido: asistencia`, payload.new);
             // Refrescar estadísticas cuando hay una nueva detección o actualización
-            fetchEstadisticas(camaraSel, fecha);
+            fetchEstadisticas(camaraSel, fecha, jornada);
           }
         )
         .subscribe((status) => {
@@ -115,7 +116,7 @@ export default function DashboardPage() {
         supabase.removeChannel(channel);
       };
     }
-  }, [camaraSel, fecha, horariosConfig]);
+  }, [camaraSel, fecha, jornada, horariosConfig]);
 
   const checkUser = async () => {
     const {
@@ -133,6 +134,13 @@ export default function DashboardPage() {
     const { data, error } = await supabase.from("camaras").select("*").order("id");
     if (error) {
       console.error("[Supabase] Error consultando camaras:", error);
+      
+      // Auto-reparar la sesión local si el token fue emitido en el futuro (reloj modificado)
+      if (error.code === 'PGRST303') {
+        console.warn("[Dashboard] Reloj desincronizado. Forzando cierre de sesión para renovar JWT...");
+        alert("El reloj del sistema fue modificado (Token en el futuro). Inicia sesión nuevamente.");
+        handleLogout();
+      }
       return;
     }
     if (data) {
@@ -141,7 +149,7 @@ export default function DashboardPage() {
     }
   };
 
-  const fetchEstadisticas = async (camaraId: string, date: string) => {
+  const fetchEstadisticas = async (camaraId: string, date: string, jornadaSel: string) => {
     // --- NUEVO: RESETEAR EL DASHBOARD A CERO ---
     setTotales({ Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 });
     setHistorialHoras([]);
@@ -164,14 +172,26 @@ export default function DashboardPage() {
 
     let HORAS_CLASE: string[] = [];
     if (horariosConfig) {
-      const tipo = horariosConfig.CURSOS_MAPPING?.[curso.id] || "BACH_MAT";
+      // Determinamos el tipo base del curso
+      let tipo = horariosConfig.CURSOS_MAPPING?.[curso.id];
+      // Si el curso es una zona común (Patio) o queremos forzar el visor a la jornada seleccionada:
+      if (curso.id === "Patio_Central") {
+        tipo = jornadaSel === "Matutina" ? "BACH_MAT" : "VESP_BACH";
+      } else {
+        // En cursos normales, respetamos su mapeo original, a menos que el usuario quiera ver
+        // explícitamente otra jornada, en cuyo caso forzamos el horario.
+        // Pero típicamente si seleccionas VESP para un curso MAT, el filtro arrojará 0 resultados,
+        // lo cual es matemáticamente correcto.
+        tipo = jornadaSel === "Matutina" ? "BACH_MAT" : "VESP_BACH";
+      }
+      
       const configHorario = horariosConfig.CONFIGURACIONES?.[tipo] || {};
       HORAS_CLASE = Object.keys(configHorario);
     } else {
       HORAS_CLASE = ["Hora_1", "Hora_2", "Hora_3", "Hora_4", "Recreo", "Hora_5", "Hora_6", "Hora_7", "Hora_8"];
     }
 
-    // 2. Obtener toda la asistencia de ese curso en esa fecha
+    // 2. Obtener toda la asistencia de ese curso en esa fecha, filtrando solo por las horas de la jornada!
       const { data: asistencia, error: errAsist } = await supabase
         .from("asistencia")
         .select(
@@ -179,6 +199,7 @@ export default function DashboardPage() {
         )
         .eq("curso_id", curso.id)
         .eq("fecha", date)
+        .in("hora_clase", HORAS_CLASE)
         .order("hora_clase", { ascending: true });
 
       if (errAsist) {
@@ -207,10 +228,11 @@ export default function DashboardPage() {
         const tablaTemp: any[] = [];
 
         asistencia.forEach((reg: any) => {
-          const estado = reg.estado as keyof typeof counts;
+          let estadoGrafica = reg.estado as keyof typeof counts;
+          if (estadoGrafica === "Atrasado" as any) estadoGrafica = "Presente";
 
           // Sumar al total
-          if (counts[estado] !== undefined) counts[estado]++;
+          if (counts[estadoGrafica] !== undefined) counts[estadoGrafica]++;
 
           // Sumar al historial por hora (si es una hora extraída, la inicializamos)
           if (!horasData[reg.hora_clase]) {
@@ -222,7 +244,9 @@ export default function DashboardPage() {
               Intruso: 0,
             };
           }
-          horasData[reg.hora_clase][estado]++;
+          if (horasData[reg.hora_clase] && horasData[reg.hora_clase][estadoGrafica] !== undefined) {
+             horasData[reg.hora_clase][estadoGrafica]++;
+          }
 
           // Formatear para la tabla
           tablaTemp.push({
@@ -276,17 +300,27 @@ export default function DashboardPage() {
           {/* Selector de Fecha */}
           <div className="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700">
             <label className="text-sm font-bold text-slate-300 mb-3 flex items-center">
-              <Clock className="w-4 h-4 mr-2 text-blue-400" /> Fecha de Análisis
+              <Clock className="w-4 h-4 mr-2 text-blue-400" /> Fecha y Jornada de Análisis
             </label>
-            <input
-              type="date"
-              value={fecha}
-              onChange={(e) => setFecha(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-600 text-white rounded-xl p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-inner mb-3"
-            />
+            <div className="flex flex-col gap-3 mb-3">
+              <input
+                type="date"
+                value={fecha}
+                onChange={(e) => setFecha(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 text-white rounded-xl p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-inner"
+              />
+              <select
+                value={jornada}
+                onChange={(e) => setJornada(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-600 text-white rounded-xl p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-inner"
+              >
+                <option value="Matutina">Matutina (Mat)</option>
+                <option value="Vespertina">Vespertina (Vesp)</option>
+              </select>
+            </div>
             {/* Botón de Sincronización Manual */}
             <button
-              onClick={() => camaraSel && fetchEstadisticas(camaraSel, fecha)}
+              onClick={() => camaraSel && fetchEstadisticas(camaraSel, fecha, jornada)}
               disabled={!camaraSel}
               className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium py-2 px-4 rounded-lg transition-colors"
             >

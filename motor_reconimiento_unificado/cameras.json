@@ -1,8 +1,8 @@
 [
     {
         "camera_id": "CAM_001",
-        "nombre": "Camara 2_INFO_B",
-        "curso": "2_INFO_B",
+        "nombre": "Camara 2_INFO_B_MAT",
+        "curso": "2_INFO_B_MAT",
         "src": 0,
         "ubicacion": {
             "latitude": -2.128589,
@@ -11,8 +11,8 @@
     },
     {
         "camera_id": "CAM_002",
-        "nombre": "Camara 2_INFO_A",
-        "curso": "2_INFO_A",
+        "nombre": "Camara 2_INFO_B_VESP",
+        "curso": "2_INFO_B_VESP",
         "src": 1,
         "ubicacion": {
             "latitude": -2.128589,
@@ -21,8 +21,8 @@
     },
     {
         "camera_id": "CAM_003",
-        "nombre": "Camara 3_INFO_B",
-        "curso": "3_INFO_B",
+        "nombre": "Patio Central",
+        "curso": "Patio_Central",
         "src": 2,
         "ubicacion": {
             "latitude": -2.128589,

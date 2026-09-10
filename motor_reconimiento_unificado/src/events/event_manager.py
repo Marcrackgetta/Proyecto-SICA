@@ -145,50 +145,83 @@ class EventManager:
         now = datetime.now()
         date_str = now.strftime("%Y-%m-%d")
 
-        curso_id = self.cam_to_curso.get(camera_id)
-        if not curso_id:
+        camera_zone = self.cam_to_curso.get(camera_id)
+        if not camera_zone:
             return
 
         self._init_day_memory(date_str)
-        horario = self._get_curso_horario(curso_id)
-
-        current_block = self._get_current_block(now, horario)
-        if not current_block:
-            return
-
-        # Mapear rostros no reconocidos a una entidad genérica de Intruso
+        
+        # 1. Extraer identidad y buscar curso real del estudiante
         if identity_uuid in ("unknown", "Desconocido"):
             # Usar track_id para permitir distinguir entre múltiples intrusos (o el mismo que vuelve) en memoria
             track_suffix = f"_{track_id}" if track_id is not None else "_untracked"
             cedula_memoria = f"unknown_person{track_suffix}"
             nombre = "Visitante / No Reconocido"
+            estudiante_curso = None
         else:
             cedula_memoria = identity_uuid.split("--")[0] if "--" in identity_uuid else identity_uuid
             nombre = identity_uuid.split("--")[1].replace("_", " ") if "--" in identity_uuid else identity_uuid
+            
+            # Buscar en qué curso está matriculado
+            estudiante_curso = None
+            for c_id, estudiantes in self.curso_to_estudiantes.items():
+                if any(e["cedula"] == cedula_memoria for e in estudiantes):
+                    estudiante_curso = c_id
+                    break
+                    
+            # Auto-matriculación local: Si el motor IA lo reconoce (no es 'unknown') pero
+            # no está en Supabase, lo matriculamos dinámicamente en la zona actual,
+            # SIEMPRE Y CUANDO la cámara no sea una zona común (como el Patio).
+            if not estudiante_curso and "Patio" not in camera_zone:
+                estudiante_curso = camera_zone
+                self.curso_to_estudiantes.setdefault(camera_zone, []).append({"cedula": cedula_memoria, "nombre": nombre})
 
-        block_memory = self.processed_events[date_str][curso_id].get(current_block, {})
+        # 2. Contexto de horario y registro (Dónde se guarda el evento)
+        # El horario de referencia debe ser el del estudiante (para saber si está fugándose de SU clase)
+        time_context = estudiante_curso if estudiante_curso else camera_zone
+        horario = self._get_curso_horario(time_context)
+        current_block = self._get_current_block(now, horario)
+        
+        # Si no hay bloque activo o es una hora libre, no evaluamos
+        if not current_block:
+            return
+
+        # La ubicación física estricta donde ocurrió el evento
+        event_location = camera_zone
+
+        # 3. Deduplicación por bloque y ubicación física
+        if event_location not in self.processed_events[date_str]:
+            self.processed_events[date_str][event_location] = {}
+            
+        block_memory = self.processed_events[date_str][event_location].get(current_block, {})
+        
+        # Si ya reportamos a esta persona en esta ubicación durante este bloque, ignoramos
+        # PERO si estaba presente en su clase, y luego va al patio, event_location es distinto, por lo que SÍ se registrará.
         if cedula_memoria in block_memory:
             return
 
-        estudiantes_curso = [e["cedula"] for e in self.curso_to_estudiantes.get(curso_id, [])]
-        is_enrolled = cedula_memoria in estudiantes_curso
-
-        estado = "Intruso"
-        if is_enrolled:
-            inicio_clase_str = horario[current_block]["inicio"]
-            inicio_clase_dt = datetime.strptime(inicio_clase_str, "%H:%M").replace(
-                year=now.year, month=now.month, day=now.day
-            )
-            tolerancia = inicio_clase_dt + timedelta(minutes=15)
-
-            if now <= tolerancia:
-                estado = "Presente"
+        # 4. Lógica estricta de Ubicación Física
+        if not estudiante_curso:
+            estado = "Intruso"
+        else:
+            if event_location == estudiante_curso:
+                # Está en su clase correcta
+                inicio_clase_str = horario[current_block]["inicio"]
+                inicio_clase_dt = datetime.strptime(inicio_clase_str, "%H:%M").replace(
+                    year=now.year, month=now.month, day=now.day
+                )
+                tolerancia = inicio_clase_dt + timedelta(minutes=15)
+                estado = "Presente" if now <= tolerancia else "Atrasado"
+            elif "Patio" in event_location:
+                # Estudiante matriculado en zona prohibida durante clase
+                estado = "Fugado"
             else:
-                estado = "Atrasado"
+                # Estudiante matriculado pero detectado en OTRA aula que no le corresponde
+                estado = "Intruso"
 
-        self.processed_events[date_str][curso_id].setdefault(current_block, {})[cedula_memoria] = estado
-        logger.info(f"[Supabase] Preparando evento: {estado} para {nombre} ({cedula_memoria})")
-        self._dispatch_event(cedula_memoria, nombre, curso_id, date_str, current_block, estado, camera_id)
+        self.processed_events[date_str][event_location].setdefault(current_block, {})[cedula_memoria] = estado
+        logger.info(f"[Supabase] Preparando evento: {estado} para {nombre} ({cedula_memoria}) en {event_location}")
+        self._dispatch_event(cedula_memoria, nombre, event_location, date_str, current_block, estado, camera_id)
 
     def check_schedules(self) -> None:
         now = datetime.now()

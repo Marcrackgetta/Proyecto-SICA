@@ -235,8 +235,10 @@ class SupabaseClient:
             # Si cedula es None o vacía (caso Intruso sin id), NO sembrar en estudiantes
             if cedula:
                 nombre_real = nombre if nombre and nombre != cedula else f"Registrado Automáticamente ({cedula})"
+                # Si el evento proviene de una zona común, no lo matriculamos allí.
+                db_curso_id = None if "Patio" in curso else curso
                 # Solo inserta si no existe, respetando el nombre manual si ya estaba
-                self._post("estudiantes?on_conflict=cedula", [{"cedula": cedula, "nombre": nombre_real, "curso_id": curso}], ignore_duplicates=True)
+                self._post("estudiantes?on_conflict=cedula", [{"cedula": cedula, "nombre": nombre_real, "curso_id": db_curso_id}], ignore_duplicates=True)
 
         # El parametro on_conflict define las columnas que forman la clave unica
         endpoint = "asistencia?on_conflict=estudiante_cedula,fecha,hora_clase,curso_id"

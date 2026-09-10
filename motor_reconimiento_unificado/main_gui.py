@@ -1,5 +1,6 @@
 import logging
 import os
+os.environ["SUPERVISION_DISABLE_TELEMETRY"] = "1"
 import platform
 import sys
 import threading

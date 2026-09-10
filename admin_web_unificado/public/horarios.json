@@ -12,7 +12,7 @@
       "Hora_8": {"inicio": "11:50", "fin": "12:25"}
     },
     "BACH_MAT": {
-      "Hora_1": {"inicio": "06:50", "fin": "07:30"},
+      "Hora_1": {"inicio": "04:50", "fin": "07:30"},
       "Hora_2": {"inicio": "07:30", "fin": "08:10"},
       "Hora_3": {"inicio": "08:10", "fin": "08:50"},
       "Hora_4": {"inicio": "08:50", "fin": "09:30"},
@@ -20,7 +20,7 @@
       "Hora_5": {"inicio": "09:50", "fin": "10:30"},
       "Hora_6": {"inicio": "10:30", "fin": "11:10"},
       "Hora_7": {"inicio": "11:10", "fin": "11:50"},
-      "Hora_8": {"inicio": "11:50", "fin": "23:59"}
+      "Hora_8": {"inicio": "11:50", "fin": "12:25"}
     },
     "VESP_BAS": {
       "Hora_1": {"inicio": "12:55", "fin": "13:35"},
@@ -44,10 +44,9 @@
     }
   },
   "CURSOS_MAPPING": {
-    "2_INFO_B": "BACH_MAT",
-    "2_INFO_A": "BACH_MAT",
-    "3_INFO_A": "BACH_MAT",
-    "8_BAS_A": "VESP_BAS",
+    "2_INFO_B_MAT": "BACH_MAT",
+    "2_INFO_B_VESP": "VESP_BACH",
+    "Patio_Central": "BACH_MAT",
     "curso_mock_1": "BACH_MAT"
   }
 }
