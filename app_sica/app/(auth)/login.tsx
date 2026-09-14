@@ -1,19 +1,25 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/services/supabase';
-import { Mail, Lock, Eye, EyeOff, ShieldCheck } from 'lucide-react-native';
+import { Mail, Lock, ShieldCheck } from 'lucide-react-native';
+import { Colors } from '@/theme/colors';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Card } from '@/components/ui/Card';
 
 export default function LoginScreen() {
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
   const router = useRouter();
 
   const handleLogin = async () => {
+    setErrorMsg('');
     if (!email || !password) {
-      Alert.alert('Error', 'Ingrese su correo y contraseña.');
+      setErrorMsg('Por favor, ingrese su correo y contrasea.');
       return;
     }
 
@@ -22,156 +28,128 @@ export default function LoginScreen() {
       email: email.trim(),
       password,
     });
-
     setIsLoading(false);
 
     if (error) {
-      Alert.alert('Error', 'Credenciales incorrectas o problema de conexión.');
+      setErrorMsg('Credenciales incorrectas o problema de conexin.');
     }
-    // Si hay éxito, authStore detectará el cambio de sesión y root layout redirigirá.
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container} 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.card}>
-        <View style={styles.iconContainer}>
-          <ShieldCheck color="#F59E0B" size={48} />
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent} 
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <View style={styles.iconContainer}>
+            <ShieldCheck color={Colors.primary} size={48} />
+          </View>
+          <Text style={styles.title}>SICA Familias</Text>
+          <Text style={styles.subtitle}>Conectando el hogar y la escuela</Text>
         </View>
-        <Text style={styles.title}>Portal Representantes</Text>
-        <Text style={styles.subtitle}>Ingrese sus credenciales de acceso</Text>
 
-        <View style={styles.inputContainer}>
-          <Mail color="#64748B" size={20} style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Correo Electrónico"
+        <Card style={styles.card}>
+          <Input
+            placeholder="Correo Electrnico"
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
+            leftIcon={<Mail color={Colors.text.muted} size={20} />}
           />
-        </View>
 
-        <View style={styles.inputContainer}>
-          <Lock color="#64748B" size={20} style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Contraseña"
+          <Input
+            placeholder="Contrasea"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry={!showPassword}
+            isPassword
+            leftIcon={<Lock color={Colors.text.muted} size={20} />}
           />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
-            {showPassword ? <EyeOff color="#64748B" size={20} /> : <Eye color="#64748B" size={20} />}
-          </TouchableOpacity>
-        </View>
 
-        <TouchableOpacity 
-          style={[styles.button, isLoading && styles.buttonDisabled]} 
-          onPress={handleLogin}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Ingresar al Sistema</Text>
-          )}
-        </TouchableOpacity>
+          {errorMsg ? (
+            <Text style={styles.errorText}>{errorMsg}</Text>
+          ) : null}
 
-        <TouchableOpacity onPress={() => router.push('/(auth)/register')} style={styles.linkContainer}>
-          <Text style={styles.linkText}>¿No tienes cuenta? Regístrate aquí</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+          <Button 
+            title="Ingresar al Sistema" 
+            onPress={handleLogin} 
+            isLoading={isLoading} 
+            style={styles.button}
+          />
+
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>No tienes cuenta? </Text>
+            <TouchableOpacity onPress={() => router.push('/(auth)/register')}>
+              <Text style={styles.linkText}>Regstrate aqu</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    padding: 24,
+    backgroundColor: Colors.background,
   },
-  card: {
-    backgroundColor: '#FFF',
-    padding: 32,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 24,
+    paddingTop: 80,
+    paddingBottom: 40,
+  },
+  header: {
     alignItems: 'center',
-    maxWidth: 400,
-    width: '100%',
-    alignSelf: 'center',
+    marginBottom: 40,
   },
   iconContainer: {
-    backgroundColor: '#FEF3C7',
-    padding: 16,
-    borderRadius: 50,
-    marginBottom: 24,
+    backgroundColor: Colors.primaryLight,
+    padding: 20,
+    borderRadius: 24,
+    marginBottom: 20,
   },
   title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#1E293B',
+    fontSize: 28,
+    fontWeight: '800',
+    color: Colors.text.primary,
     marginBottom: 8,
   },
   subtitle: {
-    fontSize: 14,
-    color: '#64748B',
-    marginBottom: 32,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    marginBottom: 16,
-    width: '100%',
-    height: 50,
-  },
-  icon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
     fontSize: 16,
-    color: '#334155',
+    color: Colors.text.secondary,
   },
-  eyeIcon: {
-    padding: 8,
+  card: {
+    padding: 24,
+  },
+  errorText: {
+    color: Colors.status.danger,
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
+    fontWeight: '500',
   },
   button: {
-    backgroundColor: '#1E293B',
-    width: '100%',
-    height: 50,
-    borderRadius: 12,
+    marginTop: 8,
+  },
+  footer: {
+    flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 16,
+    marginTop: 24,
   },
-  buttonDisabled: {
-    backgroundColor: '#475569',
-  },
-  buttonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  linkContainer: {
-    marginTop: 16,
-    padding: 8,
+  footerText: {
+    color: Colors.text.secondary,
+    fontSize: 15,
   },
   linkText: {
-    color: '#3B82F6',
-    fontSize: 14,
+    color: Colors.primary,
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/authStore';
 import { View, ActivityIndicator } from 'react-native';
 
 export default function RootLayout() {
+
   const { initialize, isLoading, session } = useAuthStore();
   const segments = useSegments();
   const router = useRouter();

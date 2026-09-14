@@ -6,7 +6,7 @@ interface StudentState {
   vinculacionStatus: 'CARGANDO' | 'SIN_VINCULAR' | 'PENDIENTE' | 'VINCULADO';
   channelSubscription: any | null;
   fetchVinculacion: (repUid: string) => Promise<void>;
-  solicitarVinculacion: (repUid: string, correo: string, nombreRep: string, cedula: string, nombreEst: string) => Promise<boolean>;
+  solicitarVinculacion: (repUid: string, correo: string, nombreRep: string, cedula: string, nombreEst: string, institucionId?: string) => Promise<boolean>;
   suscribirseAvinculacion: (repUid: string) => void;
   desuscribirseAvinculacion: () => void;
 }
@@ -48,7 +48,7 @@ export const useStudentStore = create<StudentState>((set, get) => ({
     }
   },
 
-  solicitarVinculacion: async (repUid, correo, nombreRep, cedula, nombreEst) => {
+  solicitarVinculacion: async (repUid, correo, nombreRep, cedula, nombreEst, institucionId) => {
     try {
       const { error } = await supabase
         .from('solicitudes_vinculacion')
@@ -58,7 +58,8 @@ export const useStudentStore = create<StudentState>((set, get) => ({
           nombre_rep: nombreRep,
           cedula_estudiante: cedula,
           nombre_estudiante: nombreEst,
-          estado: 'pendiente'
+          estado: 'pendiente',
+          institucion_id: institucionId
         });
       
       if (error) throw error;

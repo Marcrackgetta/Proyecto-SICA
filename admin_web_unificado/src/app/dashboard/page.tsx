@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import { supabase } from "@/lib/supabase";
 import {
@@ -15,7 +14,6 @@ import {
   CartesianGrid,
 } from "recharts";
 import {
-  LogOut,
   Activity,
   Users,
   MapPin,
@@ -25,17 +23,10 @@ import {
   UserX,
   Clock,
   Camera,
+  Download,
 } from "lucide-react";
 
-const MapComponent = dynamic(() => import("@/components/MapComponent"), {
-  ssr: false,
-});
-
-import SolicitudesVinculacion from "@/components/SolicitudesVinculacion";
-import AdminManager from "@/components/AdminManager";
-
-// Definición dinámica de horas
-
+const MapComponent = dynamic(() => import("@/components/MapComponent"), { ssr: false });
 
 export default function DashboardPage() {
   const [camaras, setCamaras] = useState<any[]>([]);
@@ -47,13 +38,6 @@ export default function DashboardPage() {
   const [jornada, setJornada] = useState("Matutina");
   const [horariosConfig, setHorariosConfig] = useState<any>(null);
 
-  useEffect(() => {
-    fetch("/horarios.json")
-      .then((res) => res.json())
-      .then((data) => setHorariosConfig(data))
-      .catch((err) => console.error("Error cargando horarios:", err));
-  }, []);
-
   // Estados para la analítica
   const [totales, setTotales] = useState({
     Presente: 0,
@@ -64,53 +48,46 @@ export default function DashboardPage() {
   const [historialHoras, setHistorialHoras] = useState<any[]>([]);
   const [tablaRegistros, setTablaRegistros] = useState<any[]>([]);
 
-  const router = useRouter();
+  useEffect(() => {
+    fetch("/horarios.json")
+      .then((res) => res.json())
+      .then((data) => setHorariosConfig(data))
+      .catch((err) => console.error("Error cargando horarios:", err));
+  }, []);
 
   useEffect(() => {
-    checkUser();
     fetchCamaras();
 
-    // --- NUEVO: Supabase Realtime para estado de Cámaras ---
     const camarasChannel = supabase
       .channel("camaras-channel")
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "camaras" },
         (payload) => {
-          console.log(`[Supabase Realtime] Cambio recibido: camaras`, payload.new);
           fetchCamaras();
         }
       )
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') console.log("[Supabase Realtime] Subscrito a camaras");
-      });
+      .subscribe();
 
     return () => {
       supabase.removeChannel(camarasChannel);
     };
   }, []);
 
-  // Se ejecuta cuando cambias manualmente de cámara, fecha o jornada
   useEffect(() => {
     if (camaraSel) {
-      console.log(`[Dashboard] Sincronizando datos para cámara: ${camaraSel}`);
       fetchEstadisticas(camaraSel, fecha, jornada);
 
-      // --- NUEVO: Supabase Realtime para la Asistencia ---
       const channel = supabase
         .channel(`asistencia-channel-${camaraSel}`)
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "asistencia" },
-          (payload) => {
-            console.log(`[Supabase Realtime] Cambio recibido: asistencia`, payload.new);
-            // Refrescar estadísticas cuando hay una nueva detección o actualización
+          () => {
             fetchEstadisticas(camaraSel, fecha, jornada);
           }
         )
-        .subscribe((status) => {
-          if (status === 'SUBSCRIBED') console.log(`[Supabase Realtime] Subscrito a asistencia para cámara ${camaraSel}`);
-        });
+        .subscribe();
 
       return () => {
         supabase.removeChannel(channel);
@@ -118,70 +95,36 @@ export default function DashboardPage() {
     }
   }, [camaraSel, fecha, jornada, horariosConfig]);
 
-  const checkUser = async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    if (!session) router.push("/");
-  };
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    router.push("/");
-  };
-
   const fetchCamaras = async () => {
     const { data, error } = await supabase.from("camaras").select("*").order("id");
     if (error) {
-      console.error("[Supabase] Error consultando camaras:", error);
-      
-      // Auto-reparar la sesión local si el token fue emitido en el futuro (reloj modificado)
-      if (error.code === 'PGRST303') {
-        console.warn("[Dashboard] Reloj desincronizado. Forzando cierre de sesión para renovar JWT...");
-        alert("El reloj del sistema fue modificado (Token en el futuro). Inicia sesión nuevamente.");
-        handleLogout();
-      }
+      console.error("Error consultando camaras:", error);
       return;
     }
     if (data) {
-      console.log(`[Supabase] Consulta camaras: OK — ${data.length} registros`);
       setCamaras(data);
     }
   };
 
   const fetchEstadisticas = async (camaraId: string, date: string, jornadaSel: string) => {
-    // --- NUEVO: RESETEAR EL DASHBOARD A CERO ---
     setTotales({ Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 });
     setHistorialHoras([]);
     setTablaRegistros([]);
-    // -------------------------------------------
-    // 1. Obtener el curso vinculado a la cámara
+
     const { data: curso, error: errCurso } = await supabase
       .from("cursos")
       .select("id")
       .eq("camara_id", camaraId)
       .single();
     
-    if (errCurso) {
-      console.warn(`[Supabase] No se encontro curso para la cámara ${camaraId}`);
-      return;
-    }
-    if (!curso) return;
-
-    console.log(`[Supabase] Curso vinculado a ${camaraId}: ${curso.id}`);
+    if (errCurso || !curso) return;
 
     let HORAS_CLASE: string[] = [];
     if (horariosConfig) {
-      // Determinamos el tipo base del curso
       let tipo = horariosConfig.CURSOS_MAPPING?.[curso.id];
-      // Si el curso es una zona común (Patio) o queremos forzar el visor a la jornada seleccionada:
       if (curso.id === "Patio_Central") {
         tipo = jornadaSel === "Matutina" ? "BACH_MAT" : "VESP_BACH";
       } else {
-        // En cursos normales, respetamos su mapeo original, a menos que el usuario quiera ver
-        // explícitamente otra jornada, en cuyo caso forzamos el horario.
-        // Pero típicamente si seleccionas VESP para un curso MAT, el filtro arrojará 0 resultados,
-        // lo cual es matemáticamente correcto.
         tipo = jornadaSel === "Matutina" ? "BACH_MAT" : "VESP_BACH";
       }
       
@@ -191,356 +134,364 @@ export default function DashboardPage() {
       HORAS_CLASE = ["Hora_1", "Hora_2", "Hora_3", "Hora_4", "Recreo", "Hora_5", "Hora_6", "Hora_7", "Hora_8"];
     }
 
-    // 2. Obtener toda la asistencia de ese curso en esa fecha, filtrando solo por las horas de la jornada!
-      const { data: asistencia, error: errAsist } = await supabase
-        .from("asistencia")
-        .select(
-          "estado, hora_clase, estudiante_cedula, timestamp_deteccion, estudiantes(nombre)",
-        )
-        .eq("curso_id", curso.id)
-        .eq("fecha", date)
-        .in("hora_clase", HORAS_CLASE)
-        .order("hora_clase", { ascending: true });
+    const { data: asistencia, error: errAsist } = await supabase
+      .from("asistencia_diaria")
+      .select(
+        "estado_llegada, estado_ubicacion, hora_llegada, ultima_actualizacion, estudiante_cedula, estudiantes(nombre, curso_id)"
+      )
+      .eq("fecha", date);
 
-      if (errAsist) {
-        console.error("[Supabase] Error al consultar asistencias:", errAsist);
-        return;
-      }
+    if (errAsist) return;
 
-      if (asistencia) {
-        console.log(`[Supabase] Consulta asistencia: OK — ${asistencia.length} registros para ${curso.id}`);
-        // A. Calcular Totales Diarios
-        const counts = { Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
+    if (asistencia) {
+      const counts = { Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
+      const horasData: Record<string, any> = {};
+      
+      HORAS_CLASE.forEach((h) => {
+        horasData[h] = {
+          name: h.replace("_", " "),
+          Presente: 0,
+          Falta: 0,
+          Fugado: 0,
+          Intruso: 0,
+        };
+      });
 
-        // B. Preparar estructura de las 8 horas
-        const horasData: Record<string, any> = {};
-        HORAS_CLASE.forEach((h) => {
-          horasData[h] = {
-            name: h.replace("_", " "),
-            Presente: 0,
-            Falta: 0,
-            Fugado: 0,
-            Intruso: 0,
-          };
+      const tablaTemp: any[] = [];
+
+      asistencia.forEach((reg: any) => {
+        // Filtro local simulando curso (en un multi-tenant real esto se filtra arriba)
+        if (reg.estudiantes && reg.estudiantes.curso_id !== curso.id) return;
+
+        let estadoLogico = reg.estado_ubicacion || reg.estado_llegada || 'Ausente';
+        let estadoGrafica = estadoLogico as keyof typeof counts;
+        
+        if (estadoLogico.includes('Presente') || estadoLogico.includes('Atrasado') || estadoLogico.includes('clase')) {
+            estadoGrafica = 'Presente';
+        } else if (estadoLogico.includes('Fugado')) {
+            estadoGrafica = 'Fugado';
+        } else if (estadoLogico.includes('Intruso')) {
+            estadoGrafica = 'Intruso';
+        } else {
+            estadoGrafica = 'Falta';
+        }
+
+        if (counts[estadoGrafica] !== undefined) counts[estadoGrafica]++;
+
+        let mockHora = "Total del Día";
+        if (!horasData[mockHora]) {
+          horasData[mockHora] = { name: mockHora, Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
+        }
+        if (horasData[mockHora][estadoGrafica] !== undefined) {
+           horasData[mockHora][estadoGrafica]++;
+        }
+
+        tablaTemp.push({
+          id: reg.ultima_actualizacion || Math.random().toString(),
+          hora: "Llegada: " + (reg.hora_llegada ? new Date(reg.hora_llegada).toLocaleTimeString() : "--:--"),
+          cedula: reg.estudiante_cedula,
+          nombre: reg.estudiantes?.nombre || "Desconocido / Visitante",
+          estado: estadoLogico,
+          hora_registro: reg.ultima_actualizacion 
+              ? new Date(reg.ultima_actualizacion).toLocaleTimeString() 
+              : "Sin Hora",
         });
-
-        // C. Recorrer datos y llenar estructuras
-        const tablaTemp: any[] = [];
-
-        asistencia.forEach((reg: any) => {
-          let estadoGrafica = reg.estado as keyof typeof counts;
-          if (estadoGrafica === "Atrasado" as any) estadoGrafica = "Presente";
-
-          // Sumar al total
-          if (counts[estadoGrafica] !== undefined) counts[estadoGrafica]++;
-
-          // Sumar al historial por hora (si es una hora extraída, la inicializamos)
-          if (!horasData[reg.hora_clase]) {
-            horasData[reg.hora_clase] = {
-              name: reg.hora_clase.replace("_", " "),
-              Presente: 0,
-              Falta: 0,
-              Fugado: 0,
-              Intruso: 0,
-            };
-          }
-          if (horasData[reg.hora_clase] && horasData[reg.hora_clase][estadoGrafica] !== undefined) {
-             horasData[reg.hora_clase][estadoGrafica]++;
-          }
-
-          // Formatear para la tabla
-          tablaTemp.push({
-            id: reg.timestamp_deteccion || Math.random().toString(),
-            hora: reg.hora_clase.replace("_", " "),
-            cedula: reg.estudiante_cedula,
-            nombre: reg.estudiantes?.nombre || "Desconocido / Visitante",
-            estado: reg.estado,
-            hora_registro: reg.timestamp_deteccion 
-                ? new Date(reg.timestamp_deteccion).toLocaleTimeString() 
-                : "Sin Hora",
-          });
-        });
+      });
 
       setTotales(counts);
       setHistorialHoras(Object.values(horasData));
-
-      // Ordenar tabla: Más recientes primero (asumiendo que Hora_8 es mayor que Hora_1 en string)
       setTablaRegistros(tablaTemp.reverse());
     }
   };
 
   const camaraActiva = camaras.find((c) => c.id === camaraSel);
 
+  const exportarCSV = () => {
+    if (tablaRegistros.length === 0) {
+      alert("No hay registros para exportar.");
+      return;
+    }
+    const headers = ["Cédula", "Nombre", "Estado", "Hora de Registro", "Hora Escolar"];
+    const rows = tablaRegistros.map(r => [
+      r.cedula || "N/A",
+      r.nombre || "Desconocido",
+      r.estado,
+      r.hora_registro,
+      r.hora
+    ]);
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(r => r.map(cell => `"${cell}"`).join(","))
+    ].join("\n");
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `asistencia_${camaraSel}_${fecha}_${jornada}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-200 font-sans">
-      {/* Navbar Superior */}
-      <nav className="bg-slate-800 border-b border-slate-700 p-4 sticky top-0 z-[500] shadow-md">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <div className="flex items-center space-x-3">
-            <div className="bg-blue-600 p-2 rounded-lg">
-              <Activity className="text-white w-5 h-5" />
-            </div>
-            <span className="text-xl font-bold text-white tracking-wide">
-              EdgeVision <span className="text-blue-400">Dashboard</span>
-            </span>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center text-slate-400 hover:text-red-400 transition-colors bg-slate-700/50 px-4 py-2 rounded-lg hover:bg-slate-700"
-          >
-            <LogOut className="w-4 h-4 mr-2" /> Cerrar Sesión
-          </button>
+    <div className="animate-fade-in w-full max-w-screen-2xl mx-auto h-full flex flex-col">
+      <div className="mb-6 flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center">
+            <Activity className="w-6 h-6 mr-3 text-blue-400" />
+            Monitoría en Vivo
+          </h1>
+          <p className="text-slate-400 mt-1">Selecciona una cámara para analizar la telemetría en tiempo real.</p>
         </div>
-      </nav>
+      </div>
 
-      <main className="max-w-7xl mx-auto p-4 lg:p-6 grid grid-cols-1 xl:grid-cols-3 gap-6">
-        {/* COLUMNA IZQUIERDA: Mapa y Controles */}
-        <div className="xl:col-span-1 space-y-6">
-          {/* 1. Selector de Fecha */}
-          {/* Selector de Fecha */}
-          <div className="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700">
-            <label className="text-sm font-bold text-slate-300 mb-3 flex items-center">
-              <Clock className="w-4 h-4 mr-2 text-blue-400" /> Fecha y Jornada de Análisis
-            </label>
-            <div className="flex flex-col gap-3 mb-3">
-              <input
-                type="date"
-                value={fecha}
-                onChange={(e) => setFecha(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 text-white rounded-xl p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-inner"
-              />
-              <select
-                value={jornada}
-                onChange={(e) => setJornada(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-600 text-white rounded-xl p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none shadow-inner"
-              >
-                <option value="Matutina">Matutina (Mat)</option>
-                <option value="Vespertina">Vespertina (Vesp)</option>
-              </select>
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 flex-1 items-start">
+        {/* COLUMNA IZQUIERDA: Controles (Toma 3 de 12 columnas) */}
+        <div className="xl:col-span-3 space-y-8 sticky top-4">
+          
+          {/* Card: Parámetros de Análisis */}
+          <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-sm flex flex-col">
+            <h3 className="text-sm font-bold text-slate-300 mb-4 flex items-center uppercase tracking-wide">
+              <Clock className="w-4 h-4 mr-2 text-blue-400" /> Parámetros
+            </h3>
+            
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-2">Fecha</label>
+                <input
+                  type="date"
+                  value={fecha}
+                  onChange={(e) => setFecha(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-2">Jornada</label>
+                <select
+                  value={jornada}
+                  onChange={(e) => setJornada(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-600 text-white rounded-lg p-3 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                >
+                  <option value="Matutina">Matutina (Mat)</option>
+                  <option value="Vespertina">Vespertina (Vesp)</option>
+                </select>
+              </div>
             </div>
-            {/* Botón de Sincronización Manual */}
-            <button
-              onClick={() => camaraSel && fetchEstadisticas(camaraSel, fecha, jornada)}
-              disabled={!camaraSel}
-              className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium py-2 px-4 rounded-lg transition-colors"
-            >
-              <Activity className="w-4 h-4 mr-2" /> Sincronizar Datos
-            </button>
+
+            <div className="flex flex-col gap-3 mt-auto">
+              <button
+                onClick={() => camaraSel && fetchEstadisticas(camaraSel, fecha, jornada)}
+                disabled={!camaraSel}
+                className="w-full flex items-center justify-center bg-blue-600 hover:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 text-white font-medium py-3 px-4 rounded-lg transition-colors"
+              >
+                <Activity className="w-4 h-4 mr-2" /> Sincronizar
+              </button>
+              <button
+                onClick={exportarCSV}
+                disabled={tablaRegistros.length === 0}
+                className="w-full flex items-center justify-center bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white font-medium py-3 px-4 rounded-lg transition-colors border border-slate-600"
+              >
+                <Download className="w-4 h-4 mr-2" /> Exportar CSV
+              </button>
+            </div>
           </div>
 
-          {/* 2. Selector de Cámaras (Botones Interactivos) */}
-          <div className="bg-slate-800 p-5 rounded-2xl shadow-xl border border-slate-700">
-            <h3 className="text-sm font-bold text-slate-300 mb-3 flex items-center">
-              <Camera className="w-4 h-4 mr-2 text-blue-400" /> Seleccionar Nodo
+          {/* Card: Selección de Cámara */}
+          <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-sm">
+            <h3 className="text-sm font-bold text-slate-300 mb-4 flex items-center uppercase tracking-wide">
+              <Camera className="w-4 h-4 mr-2 text-blue-400" /> Selección de Nodo
             </h3>
             <div className="space-y-3">
               {camaras.map((cam) => (
                 <button
                   key={cam.id}
                   onClick={() => setCamaraSel(cam.id)}
-                  className={`w-full text-left px-4 py-3 rounded-xl border transition-all duration-200 flex items-center justify-between group ${
+                  className={`w-full text-left px-5 py-4 rounded-xl border transition-all duration-200 flex flex-col gap-2 group ${
                     camaraSel === cam.id
-                      ? "bg-blue-600/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                      ? "bg-blue-600/10 border-blue-500 text-white"
                       : "bg-slate-900 border-slate-700 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
                   }`}
                 >
-                  <div className="flex items-center">
-                    <Camera
-                      className={`w-4 h-4 mr-3 ${camaraSel === cam.id ? "text-blue-400" : "text-slate-500 group-hover:text-slate-400"}`}
-                    />
-                    <span className="font-medium">{cam.nombre}</span>
+                  <div className="flex items-center justify-between w-full">
+                    <div className="flex items-center">
+                      <Camera className={`w-4 h-4 mr-3 ${camaraSel === cam.id ? "text-blue-400" : "text-slate-500"}`} />
+                      <span className="font-bold text-sm truncate">{cam.id}</span>
+                    </div>
+                    {cam.activa ? (
+                      <span className="flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-2 w-2 rounded-full bg-green-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                      </span>
+                    ) : (
+                      <span className="h-2 w-2 rounded-full bg-slate-600"></span>
+                    )}
                   </div>
-                  {/* Indicador de estado */}
-                  <div className="flex items-center">
-                    <span className="text-xs mr-2 opacity-50">
-                      {cam.activa ? "En línea" : "Off"}
-                    </span>
-                    <span
-                      className={`w-2.5 h-2.5 rounded-full ${cam.activa ? "bg-green-500" : "bg-red-500"} shadow-[0_0_5px_currentColor]`}
-                    ></span>
-                  </div>
+                  <span className={`text-xs ml-7 truncate ${camaraSel === cam.id ? "text-blue-200" : "text-slate-500"}`}>
+                    {cam.nombre}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
 
-          {/* 3. Mapa de apoyo (Más compacto) */}
-          {/* 3. Mapa de apoyo (Más amplio y limpio) */}
-          <div className="bg-slate-800 p-2 rounded-2xl shadow-xl border border-slate-700 h-[450px] relative overflow-hidden">
-            <MapComponent camaras={camaras} selectedCamaraId={camaraSel} onSelectCamara={setCamaraSel} />
-          </div>
+          {/* Mapa de Ubicación (Solo si hay cámara) */}
+          {camaraSel && (
+            <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-sm overflow-hidden h-64 relative z-10">
+               <MapComponent camaras={camaras} selectedCamaraId={camaraSel} onSelectCamara={setCamaraSel} />
+               <div className="absolute top-3 right-3 z-[400] bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-lg border border-slate-700 shadow-lg pointer-events-none">
+                  <span className="text-xs font-bold text-slate-200 flex items-center">
+                     <MapPin className="w-3 h-3 mr-1.5 text-blue-400" /> Ubicación
+                  </span>
+               </div>
+            </div>
+          )}
         </div>
 
-        {/* COLUMNA DERECHA: Analítica y Datos */}
-        <div className="xl:col-span-2 space-y-6">
-          {camaraActiva ? (
+
+        {/* COLUMNA DERECHA: Telemetría (Toma 9 de 12 columnas) */}
+        <div className="xl:col-span-9 space-y-8">
+          
+          
+
+          {camaraSel ? (
             <>
-              {/* Encabezado del Curso */}
-              <div className="bg-gradient-to-r from-blue-900/40 to-slate-800 p-6 rounded-2xl border border-blue-500/20 shadow-lg">
-                <h2 className="text-2xl font-bold text-white mb-1">
-                  {camaraActiva.nombre}
-                </h2>
-                <p className="text-blue-300 text-sm">
-                  Mostrando telemetría en tiempo real
-                </p>
-              </div>
-
-              {/* Tarjetas de Resumen KPI */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div className="bg-slate-800 p-4 rounded-2xl border border-green-500/20 shadow-md">
-                  <div className="flex items-center text-green-400 mb-2">
-                    <CheckCircle className="w-5 h-5 mr-2" /> Presentes
+              {/* Tarjetas Estadísticas */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-6">
+                <div className="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-sm flex flex-col justify-between h-32">
+                  <div className="flex items-center text-green-400">
+                    <CheckCircle className="w-5 h-5 mr-2" /> <span className="font-semibold text-sm uppercase tracking-wide">Presentes</span>
                   </div>
-                  <div className="text-3xl font-bold text-white">
-                    {totales.Presente}
-                  </div>
+                  <div className="text-4xl font-black text-white">{totales.Presente}</div>
                 </div>
-                <div className="bg-slate-800 p-4 rounded-2xl border border-red-500/20 shadow-md">
-                  <div className="flex items-center text-red-400 mb-2">
-                    <XCircle className="w-5 h-5 mr-2" /> Faltas
+                <div className="bg-slate-800 p-6 rounded-2xl border border-red-500/20 shadow-sm flex flex-col justify-between h-32">
+                  <div className="flex items-center text-red-400">
+                    <XCircle className="w-5 h-5 mr-2" /> <span className="font-semibold text-sm uppercase tracking-wide">Faltas</span>
                   </div>
-                  <div className="text-3xl font-bold text-white">
-                    {totales.Falta}
-                  </div>
+                  <div className="text-4xl font-black text-white">{totales.Falta}</div>
                 </div>
-                <div className="bg-slate-800 p-4 rounded-2xl border border-yellow-500/20 shadow-md">
-                  <div className="flex items-center text-yellow-400 mb-2">
-                    <AlertTriangle className="w-5 h-5 mr-2" /> Fugados
+                <div className="bg-slate-800 p-6 rounded-2xl border border-yellow-500/20 shadow-sm flex flex-col justify-between h-32">
+                  <div className="flex items-center text-yellow-400">
+                    <AlertTriangle className="w-5 h-5 mr-2" /> <span className="font-semibold text-sm uppercase tracking-wide">Fugados</span>
                   </div>
-                  <div className="text-3xl font-bold text-white">
-                    {totales.Fugado}
-                  </div>
+                  <div className="text-4xl font-black text-white">{totales.Fugado}</div>
                 </div>
-                <div className="bg-slate-800 p-4 rounded-2xl border border-purple-500/20 shadow-md">
-                  <div className="flex items-center text-purple-400 mb-2">
-                    <UserX className="w-5 h-5 mr-2" /> Intrusos
+                <div className="bg-slate-800 p-6 rounded-2xl border border-purple-500/20 shadow-sm flex flex-col justify-between h-32">
+                  <div className="flex items-center text-purple-400">
+                    <UserX className="w-5 h-5 mr-2" /> <span className="font-semibold text-sm uppercase tracking-wide">Intrusos</span>
                   </div>
-                  <div className="text-3xl font-bold text-white">
-                    {totales.Intruso}
-                  </div>
+                  <div className="text-4xl font-black text-white">{totales.Intruso}</div>
                 </div>
               </div>
 
-              {/* Gráfico Histórico: Barras Apiladas */}
-              <div className="bg-slate-800 p-6 rounded-2xl shadow-xl border border-slate-700">
-                <h3 className="text-lg font-bold text-white mb-6">
-                  Historial de las 8 Horas
-                </h3>
-                <div className="h-72">
+              {/* Gráfico Histórico */}
+              <div className="bg-slate-800 p-8 rounded-2xl border border-slate-700 shadow-sm">
+                <div className="mb-8">
+                  <h3 className="text-lg font-bold text-white flex items-center">
+                    <Activity className="w-5 h-5 mr-2 text-blue-400" />
+                    Flujo de Detección a lo largo del Día
+                  </h3>
+                  <p className="text-slate-400 text-sm mt-1">Registros de los últimos movimientos confirmados.</p>
+                </div>
+                
+                <div className="h-[400px] w-full">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart
                       data={historialHoras}
-                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 20 }}
                     >
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        stroke="#334155"
-                        vertical={false}
-                      />
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
                       <XAxis
                         dataKey="name"
                         stroke="#94a3b8"
-                        fontSize={12}
+                        fontSize={13}
                         tickLine={false}
                         axisLine={false}
+                        dy={15}
                       />
                       <YAxis
                         stroke="#94a3b8"
-                        fontSize={12}
+                        fontSize={13}
                         tickLine={false}
                         axisLine={false}
                         allowDecimals={false}
+                        dx={-10}
                       />
                       <Tooltip
+                        cursor={{ fill: '#334155', opacity: 0.4 }}
                         contentStyle={{
                           backgroundColor: "#1e293b",
                           border: "1px solid #334155",
-                          borderRadius: "8px",
+                          borderRadius: "12px",
                           color: "#f8fafc",
+                          padding: "12px",
+                          boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.5)"
                         }}
-                        itemStyle={{ fontSize: "14px" }}
+                        itemStyle={{ fontSize: "14px", fontWeight: "500", paddingBottom: "4px" }}
                       />
-                      <Legend wrapperStyle={{ paddingTop: "20px" }} />
-                      <Bar
-                        dataKey="Presente"
-                        stackId="a"
-                        fill="#22c55e"
-                        radius={[0, 0, 4, 4]}
-                      />
+                      <Legend wrapperStyle={{ paddingTop: "30px" }} iconType="circle" />
+                      <Bar dataKey="Presente" stackId="a" fill="#22c55e" radius={[0, 0, 6, 6]} barSize={40} />
                       <Bar dataKey="Fugado" stackId="a" fill="#eab308" />
                       <Bar dataKey="Falta" stackId="a" fill="#ef4444" />
-                      <Bar
-                        dataKey="Intruso"
-                        stackId="a"
-                        fill="#8b5cf6"
-                        radius={[4, 4, 0, 0]}
-                      />
+                      <Bar dataKey="Intruso" stackId="a" fill="#8b5cf6" radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
               {/* Tabla de Registros */}
-              <div className="bg-slate-800 rounded-2xl shadow-xl border border-slate-700 overflow-hidden">
-                <div className="p-4 bg-slate-800/50 border-b border-slate-700">
-                  <h3 className="font-bold text-white">
-                    Log de Movimientos (En Vivo)
-                  </h3>
+              <div className="bg-slate-800 rounded-2xl border border-slate-700 shadow-sm overflow-hidden">
+                <div className="p-6 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
+                  <div>
+                    <h3 className="font-bold text-white text-lg">Registro Detallado</h3>
+                    <p className="text-slate-400 text-sm mt-1">Bitácora completa de movimientos en la zona.</p>
+                  </div>
                 </div>
-                <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                
+                <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
-                    <thead className="text-xs text-slate-400 bg-slate-900/50 sticky top-0">
+                    <thead className="text-xs text-slate-400 uppercase tracking-wider bg-slate-900/50">
                       <tr>
-                        <th className="px-4 py-3">Hora Clase</th>
-                        <th className="px-4 py-3">Estudiante</th>
-                        <th className="px-4 py-3">Estado</th>
-                        <th className="px-4 py-3">Hora de Captura</th>
+                        <th className="px-6 py-4 font-semibold">Hora Escolar</th>
+                        <th className="px-6 py-4 font-semibold">Estudiante</th>
+                        <th className="px-6 py-4 font-semibold">Estado</th>
+                        <th className="px-6 py-4 font-semibold">Hora Real de Captura</th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody className="divide-y divide-slate-700/50">
                       {tablaRegistros.map((row, idx) => (
-                        <tr
-                          key={idx}
-                          className="border-b border-slate-700/50 hover:bg-slate-700/30 transition-colors"
-                        >
-                          <td className="px-4 py-3 font-medium text-slate-300">
+                        <tr key={idx} className="hover:bg-slate-700/30 transition-colors">
+                          <td className="px-6 py-5 font-medium text-slate-300">
                             {row.hora}
                           </td>
-                          <td className="px-4 py-3">
-                            <div className="font-medium text-white">
-                              {row.nombre}
-                            </div>
-                            <div className="text-xs text-slate-500">
-                              {row.cedula}
-                            </div>
+                          <td className="px-6 py-5">
+                            <div className="font-bold text-white">{row.nombre}</div>
+                            <div className="text-xs text-slate-500 mt-1 font-mono">{row.cedula}</div>
                           </td>
-                          <td className="px-4 py-3">
+                          <td className="px-6 py-5">
                             <span
-                              className={`px-2 py-1 rounded-full text-xs font-bold ${
+                              className={`px-3 py-1.5 rounded-md text-xs font-bold uppercase tracking-wide ${
                                 row.estado === "Presente"
-                                  ? "bg-green-500/20 text-green-400"
+                                  ? "bg-green-500/10 text-green-400 border border-green-500/20"
                                   : row.estado === "Falta"
-                                    ? "bg-red-500/20 text-red-400"
+                                    ? "bg-red-500/10 text-red-400 border border-red-500/20"
                                     : row.estado === "Fugado"
-                                      ? "bg-yellow-500/20 text-yellow-400"
-                                      : "bg-purple-500/20 text-purple-400"
+                                      ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/20"
+                                      : "bg-purple-500/10 text-purple-400 border border-purple-500/20"
                               }`}
                             >
                               {row.estado}
                             </span>
                           </td>
-                          <td className="px-4 py-3 text-slate-400">
+                          <td className="px-6 py-5 text-slate-400 font-medium">
                             {row.hora_registro}
                           </td>
                         </tr>
                       ))}
                       {tablaRegistros.length === 0 && (
                         <tr>
-                          <td
-                            colSpan={4}
-                            className="px-4 py-8 text-center text-slate-500"
-                          >
-                            No hay registros para esta fecha.
+                          <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
+                            No hay registros almacenados para esta fecha y cámara.
                           </td>
                         </tr>
                       )}
@@ -550,24 +501,15 @@ export default function DashboardPage() {
               </div>
             </>
           ) : (
-            <div className="h-full min-h-[500px] flex flex-col items-center justify-center bg-slate-800/50 border-2 border-dashed border-slate-700 rounded-3xl text-slate-500">
-              <Users className="w-16 h-16 mb-4 opacity-50 text-blue-500" />
-              <h3 className="text-xl font-bold text-slate-400 mb-2">
-                Selecciona una Cámara
-              </h3>
-              <p className="text-center max-w-sm">
-                Haz clic en un marcador del mapa para cargar la telemetría y el
-                historial de las 8 horas de clases.
+            <div className="h-[600px] flex flex-col items-center justify-center bg-slate-800/30 border-2 border-dashed border-slate-700 rounded-3xl text-slate-500 p-8">
+              <Camera className="w-20 h-20 mb-6 opacity-30 text-blue-500" />
+              <h3 className="text-2xl font-bold text-slate-400 mb-3">Ningún Nodo Seleccionado</h3>
+              <p className="text-center max-w-md text-slate-500 leading-relaxed">
+                Selecciona una cámara en el panel izquierdo para cargar la telemetría en vivo, estadísticas y flujo de movimiento.
               </p>
             </div>
           )}
         </div>
-      </main>
-
-      {/* SECCIÓN DE ADMINISTRACIÓN Y VINCULACIONES (Full Width) */}
-      <div className="max-w-7xl mx-auto p-4 lg:p-6">
-        <SolicitudesVinculacion />
-        <AdminManager />
       </div>
     </div>
   );

@@ -220,26 +220,19 @@ class SupabaseClient:
 
     def registrar_asistencia_batch(self, registros: list[dict[str, Any]]) -> bool:
         """
-        Inserta o actualiza un lote de registros de asistencia.
-        Los registros ya deben tener su estado (Presente, Falta, etc.) calculado.
+        [DEPRECADO] Método antiguo de inserción por lotes.
+        Mantenido solo por compatibilidad, pero la nueva arquitectura usa reportar_deteccion().
         """
-        if not registros:
-            return True
+        return True
 
-        # Auto-sembrar estudiantes para evitar violaciones de llave foránea
-        for r in registros:
-            cedula = r.get("estudiante_cedula")
-            nombre = r.pop("estudiante_nombre", None)
-            curso = r.get("curso_id")
-            
-            # Si cedula es None o vacía (caso Intruso sin id), NO sembrar en estudiantes
-            if cedula:
-                nombre_real = nombre if nombre and nombre != cedula else f"Registrado Automáticamente ({cedula})"
-                # Si el evento proviene de una zona común, no lo matriculamos allí.
-                db_curso_id = None if "Patio" in curso else curso
-                # Solo inserta si no existe, respetando el nombre manual si ya estaba
-                self._post("estudiantes?on_conflict=cedula", [{"cedula": cedula, "nombre": nombre_real, "curso_id": db_curso_id}], ignore_duplicates=True)
-
-        # El parametro on_conflict define las columnas que forman la clave unica
-        endpoint = "asistencia?on_conflict=estudiante_cedula,fecha,hora_clase,curso_id"
-        return self._post(endpoint, registros, upsert=True)
+    def reportar_deteccion(self, cedula: str, camara_id: str, timestamp_iso: str) -> bool:
+        """
+        Llama al Stored Procedure 'reportar_deteccion' en Supabase
+        para que PostgreSQL aplique la lógica de negocio de la institución (Multi-tenant).
+        """
+        payload = {
+            "p_cedula": cedula,
+            "p_camara_id": camara_id,
+            "p_timestamp": timestamp_iso
+        }
+        return self._post("rpc/reportar_deteccion", payload)

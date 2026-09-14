@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { useAuthStore } from '@/store/authStore';
 import { registerForPushNotificationsAsync } from '@/services/notifications';
+import { Colors } from '@/theme/colors';
 
 export default function DashboardLayout() {
   const { user } = useAuthStore();
@@ -13,24 +14,25 @@ export default function DashboardLayout() {
   }, [user?.id]);
 
   return (
-    <Stack>
+    <Stack
+      screenOptions={{
+        headerStyle: { backgroundColor: Colors.surface },
+        headerTintColor: Colors.text.primary,
+        headerTitleStyle: { fontWeight: '700', fontSize: 18 },
+        headerShadowVisible: false,
+      }}
+    >
       <Stack.Screen 
         name="index" 
         options={{ 
-          title: 'Portal del Representante',
-          headerStyle: { backgroundColor: '#1E293B' },
-          headerTintColor: '#FFF',
-          headerTitleStyle: { fontWeight: '600', fontSize: 18 }
+          title: 'SICA Familias',
         }} 
       />
       <Stack.Screen 
         name="student/[id]" 
         options={{ 
-          title: 'Detalle del Estudiante',
-          headerStyle: { backgroundColor: '#1E293B' },
-          headerTintColor: '#FFF',
-          headerTitleStyle: { fontWeight: '600', fontSize: 18 },
-          headerBackTitle: 'Volver'
+          title: 'Monitoreo Escolar',
+          headerBackTitle: 'Atrás'
         }} 
       />
     </Stack>

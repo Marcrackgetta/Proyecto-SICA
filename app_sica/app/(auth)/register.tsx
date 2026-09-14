@@ -1,20 +1,34 @@
-import React, { useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, StyleSheet, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/services/supabase';
-import { Mail, Lock, Eye, EyeOff, UserPlus, User } from 'lucide-react-native';
+import { Mail, Lock, UserPlus, User } from 'lucide-react-native';
+import { Colors } from '@/theme/colors';
+import { Button } from '@/components/ui/Button';
+import { Input } from '@/components/ui/Input';
+import { Card } from '@/components/ui/Card';
 
 export default function RegisterScreen() {
+
   const [nombre, setNombre] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   const router = useRouter();
 
   const handleRegister = async () => {
+    setErrorMsg('');
+    setSuccessMsg('');
+
     if (!nombre || !email || !password) {
-      Alert.alert('Error', 'Por favor, complete todos los campos.');
+      setErrorMsg('Por favor, complete todos los campos.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setErrorMsg('La contrasea debe tener al menos 6 caracteres.');
       return;
     }
 
@@ -30,172 +44,157 @@ export default function RegisterScreen() {
       }
     });
 
+    setIsLoading(false);
+
     if (error) {
-      setIsLoading(false);
-      Alert.alert('Error al registrar', error.message);
+      setErrorMsg(error.message);
       return;
     }
 
-    // Si autoConfirm está activado en Supabase, el usuario inicia sesión.
-    // Si no, necesitamos mostrar un mensaje para que revise su correo.
     if (data.session) {
-      // Inició sesión automáticamente (el AuthStore se actualizará solo)
+      // Auto-login
     } else {
-      setIsLoading(false);
-      Alert.alert('Registro exitoso', 'Por favor revise su correo para confirmar su cuenta.');
-      router.back();
+      setSuccessMsg('Registro exitoso! Por favor revise su correo para confirmar su cuenta.');
+      setTimeout(() => {
+        router.back();
+      }, 3000);
     }
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container} 
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.card}>
-        <View style={styles.iconContainer}>
-          <UserPlus color="#64748B" size={48} />
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent} 
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <View style={styles.iconContainer}>
+            <UserPlus color={Colors.primary} size={40} />
+          </View>
+          <Text style={styles.title}>Crear Cuenta</Text>
+          <Text style={styles.subtitle}>Registro para representantes</Text>
         </View>
-        <Text style={styles.title}>Crear Cuenta</Text>
-        <Text style={styles.subtitle}>Registro de nuevo representante</Text>
 
-        <View style={styles.inputContainer}>
-          <User color="#64748B" size={20} style={styles.icon} />
-          <TextInput
-            style={styles.input}
+        <Card style={styles.card}>
+          <Input
             placeholder="Nombre Completo"
             value={nombre}
             onChangeText={setNombre}
             autoCapitalize="words"
+            leftIcon={<User color={Colors.text.muted} size={20} />}
           />
-        </View>
 
-        <View style={styles.inputContainer}>
-          <Mail color="#64748B" size={20} style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Correo Electrónico"
+          <Input
+            placeholder="Correo Electrnico"
             value={email}
             onChangeText={setEmail}
             autoCapitalize="none"
             keyboardType="email-address"
+            leftIcon={<Mail color={Colors.text.muted} size={20} />}
           />
-        </View>
 
-        <View style={styles.inputContainer}>
-          <Lock color="#64748B" size={20} style={styles.icon} />
-          <TextInput
-            style={styles.input}
-            placeholder="Contraseña (mín. 6 caracteres)"
+          <Input
+            placeholder="Contrasea (mn. 6 caracteres)"
             value={password}
             onChangeText={setPassword}
-            secureTextEntry={!showPassword}
+            isPassword
+            leftIcon={<Lock color={Colors.text.muted} size={20} />}
           />
-          <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeIcon}>
-            {showPassword ? <EyeOff color="#64748B" size={20} /> : <Eye color="#64748B" size={20} />}
-          </TouchableOpacity>
-        </View>
 
-        <TouchableOpacity 
-          style={[styles.button, isLoading && styles.buttonDisabled]} 
-          onPress={handleRegister}
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <ActivityIndicator color="#fff" />
-          ) : (
-            <Text style={styles.buttonText}>Registrarse</Text>
-          )}
-        </TouchableOpacity>
+          {errorMsg ? (
+            <Text style={styles.errorText}>{errorMsg}</Text>
+          ) : null}
 
-        <TouchableOpacity onPress={() => router.back()} style={styles.linkContainer}>
-          <Text style={styles.linkText}>¿Ya tienes cuenta? Inicia sesión</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+          {successMsg ? (
+            <Text style={styles.successText}>{successMsg}</Text>
+          ) : null}
+
+          <Button 
+            title="Registrarse" 
+            onPress={handleRegister} 
+            isLoading={isLoading} 
+            style={styles.button}
+          />
+
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>Ya tienes cuenta? </Text>
+            <TouchableOpacity onPress={() => router.back()}>
+              <Text style={styles.linkText}>Inicia sesin</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC',
-    justifyContent: 'center',
-    padding: 24,
+    backgroundColor: Colors.background,
   },
-  card: {
-    backgroundColor: '#FFF',
-    padding: 32,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 24,
+    paddingTop: 60,
+    paddingBottom: 40,
+  },
+  header: {
     alignItems: 'center',
-    maxWidth: 400,
-    width: '100%',
-    alignSelf: 'center',
+    marginBottom: 32,
   },
   iconContainer: {
-    marginBottom: 24,
+    backgroundColor: Colors.primaryLight,
+    padding: 16,
+    borderRadius: 20,
+    marginBottom: 16,
   },
   title: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#1E293B',
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.text.primary,
     marginBottom: 8,
   },
   subtitle: {
+    fontSize: 15,
+    color: Colors.text.secondary,
+  },
+  card: {
+    padding: 24,
+  },
+  errorText: {
+    color: Colors.status.danger,
     fontSize: 14,
-    color: '#64748B',
-    marginBottom: 32,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-    borderRadius: 12,
-    paddingHorizontal: 12,
     marginBottom: 16,
-    width: '100%',
-    height: 50,
+    textAlign: 'center',
+    fontWeight: '500',
   },
-  icon: {
-    marginRight: 12,
-  },
-  input: {
-    flex: 1,
-    fontSize: 16,
-    color: '#334155',
-  },
-  eyeIcon: {
-    padding: 8,
+  successText: {
+    color: Colors.status.success,
+    fontSize: 14,
+    marginBottom: 16,
+    textAlign: 'center',
+    fontWeight: '500',
   },
   button: {
-    backgroundColor: '#F59E0B', // Amber 500
-    width: '100%',
-    height: 50,
-    borderRadius: 12,
+    marginTop: 8,
+  },
+  footer: {
+    flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 16,
+    marginTop: 24,
   },
-  buttonDisabled: {
-    backgroundColor: '#FCD34D',
-  },
-  buttonText: {
-    color: '#FFF',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  linkContainer: {
-    marginTop: 16,
-    padding: 8,
+  footerText: {
+    color: Colors.text.secondary,
+    fontSize: 15,
   },
   linkText: {
-    color: '#3B82F6',
-    fontSize: 14,
+    color: Colors.primary,
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

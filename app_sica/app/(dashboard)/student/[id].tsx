@@ -1,68 +1,148 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, FlatList, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, FlatList, ActivityIndicator, RefreshControl } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { supabase } from '@/services/supabase';
-import { Clock, CheckCircle, XCircle, AlertTriangle, LogIn, LogOut } from 'lucide-react-native';
+import { Clock, CheckCircle, XCircle, AlertTriangle, Video } from 'lucide-react-native';
 import { useStudentStore } from '@/store/studentStore';
+import { Colors } from '@/theme/colors';
+import { Card } from '@/components/ui/Card';
 
 export default function StudentDetailScreen() {
   const { id } = useLocalSearchParams();
   const { estudiante } = useStudentStore();
   const [historial, setHistorial] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    fetchHistorial();
-  }, [id]);
-
-  async function fetchHistorial() {
+  const fetchHistorial = async () => {
     const d = new Date();
     const today = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-    const { data, error } = await supabase
-      .from('asistencia')
+    const { data } = await supabase
+      .from('asistencia_diaria')
       .select('*')
       .eq('estudiante_cedula', id)
       .eq('fecha', today)
-      .order('timestamp_deteccion', { ascending: false });
+      .single();
 
-    if (data) setHistorial(data);
-    setLoading(false);
-  }
-
-  const getStatusColor = (estado: string) => {
-    switch(estado) {
-      case 'Presente': return '#10B981'; // Green
-      case 'Falta': return '#EF4444'; // Red
-      case 'Fugado': return '#F59E0B'; // Amber
-      default: return '#6B7280'; // Gray
+    if (data) {
+      const events = [];
+      
+      if (data.hora_salida) {
+        events.push({
+          id: 'salida',
+          timestamp_deteccion: data.hora_salida,
+          estado: 'Salida',
+          hora_clase: 'Fin de jornada'
+        });
+      }
+      
+      if (data.estado_ubicacion && data.ultima_actualizacion) {
+        events.push({
+          id: 'actual',
+          timestamp_deteccion: data.ultima_actualizacion,
+          estado: data.estado_ubicacion,
+          hora_clase: 'Última detección'
+        });
+      }
+      
+      if (data.hora_llegada) {
+        events.push({
+          id: 'llegada',
+          timestamp_deteccion: data.hora_llegada,
+          estado: data.estado_llegada || 'Llegada',
+          hora_clase: 'Ingreso a institución'
+        });
+      }
+      
+      setHistorial(events);
+    } else {
+      setHistorial([]);
     }
+  };
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    await fetchHistorial();
+    setLoading(false);
+  }, [id]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchHistorial();
+    setRefreshing(false);
+  }, [id]);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const getStatusType = (estado: string) => {
+    const e = estado.toLowerCase();
+    if (e.includes('presente') || e.includes('atrasado') || e.includes('llegada')) return 'success';
+    if (e.includes('salida') || e.includes('clase')) return 'neutral';
+    if (e.includes('fugado')) return 'warning';
+    if (e.includes('intruso') || e.includes('falta') || e.includes('ausente') || e.includes('falto')) return 'danger';
+    return 'neutral';
   };
 
   const getStatusIcon = (estado: string) => {
-    switch(estado) {
-      case 'Presente': return <CheckCircle color="#10B981" size={20} />;
-      case 'Falta': return <XCircle color="#EF4444" size={20} />;
-      case 'Fugado': return <AlertTriangle color="#F59E0B" size={20} />;
-      default: return <Clock color="#6B7280" size={20} />;
+    const type = getStatusType(estado);
+    switch(type) {
+      case 'success': return <CheckCircle color={Colors.status.success} size={20} />;
+      case 'danger': return <XCircle color={Colors.status.danger} size={20} />;
+      case 'warning': return <AlertTriangle color={Colors.status.warning} size={20} />;
+      default: return <Clock color={Colors.text.muted} size={20} />;
     }
   };
 
-  const renderItem = ({ item }: { item: any }) => {
+  const renderSkeleton = () => (
+    <View style={styles.listContent}>
+      {[1, 2, 3].map((key) => (
+        <View key={key} style={styles.timelineItem}>
+          <View style={styles.timelineLine} />
+          <View style={[styles.timelineDot, { backgroundColor: Colors.border }]} />
+          <View style={styles.timelineContent}>
+            <Card style={styles.skeletonCard}>
+              <View style={styles.skeletonTitle} />
+              <View style={styles.skeletonSub} />
+            </Card>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+
+  const renderItem = ({ item, index }: { item: any; index: number }) => {
     const time = new Date(item.timestamp_deteccion).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    
-    // Suponemos que Hora_1, Hora_2, etc son entradas/salidas dependiendo del contexto
-    // pero para SICA, cada registro es un "evento" en una hora de clase
+    const isLast = index === historial.length - 1;
+    const type = getStatusType(item.estado);
+
+    let bgColor = Colors.status.neutralBg;
+    if (type === 'success') bgColor = Colors.status.successBg;
+    if (type === 'danger') bgColor = Colors.status.dangerBg;
+    if (type === 'warning') bgColor = Colors.status.warningBg;
+
     return (
-      <View style={styles.historyCard}>
-        <View style={[styles.iconContainer, { backgroundColor: getStatusColor(item.estado) + '20' }]}>
+      <View style={styles.timelineItem}>
+        {!isLast && <View style={styles.timelineLine} />}
+        
+        <View style={[styles.timelineDot, { backgroundColor: bgColor }]}>
           {getStatusIcon(item.estado)}
         </View>
-        <View style={styles.historyContent}>
-          <Text style={styles.historyTitle}>Registro: {item.hora_clase.replace('_', ' ')}</Text>
-          <Text style={styles.historySubtitle}>Estado: {item.estado}</Text>
-        </View>
-        <View style={styles.timeContainer}>
-          <Text style={styles.timeText}>{time}</Text>
+        
+        <View style={styles.timelineContent}>
+          <Card style={styles.historyCard}>
+            <View style={styles.historyHeader}>
+              <Text style={styles.timeText}>{time}</Text>
+              <Text style={[styles.estadoText, { color: getStatusType(item.estado) === 'success' ? Colors.status.success : getStatusType(item.estado) === 'danger' ? Colors.status.danger : Colors.status.warning }]}>
+                {item.estado}
+              </Text>
+            </View>
+            <View style={styles.historyBody}>
+              <Video color={Colors.text.muted} size={16} style={{ marginRight: 6 }} />
+              <Text style={styles.historyTitle}>Registro: {item.hora_clase.replace('_', ' ')}</Text>
+            </View>
+          </Card>
         </View>
       </View>
     );
@@ -71,15 +151,15 @@ export default function StudentDetailScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerSub}>Historial de hoy para</Text>
-        <Text style={styles.headerTitle}>{estudiante?.nombre?.toUpperCase() || 'Estudiante'}</Text>
+        <Text style={styles.headerSub}>Actividad de hoy</Text>
+        <Text style={styles.headerTitle}>{estudiante?.nombre || 'Estudiante'}</Text>
       </View>
 
       {loading ? (
-        <ActivityIndicator size="large" color="#1E293B" style={{ marginTop: 40 }} />
+        renderSkeleton()
       ) : historial.length === 0 ? (
         <View style={styles.emptyContainer}>
-          <Clock color="#9CA3AF" size={48} />
+          <Clock color={Colors.text.muted} size={48} />
           <Text style={styles.emptyText}>No hay registros para el día de hoy.</Text>
         </View>
       ) : (
@@ -88,6 +168,14 @@ export default function StudentDetailScreen() {
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderItem}
           contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh} 
+              tintColor={Colors.primary}
+              colors={[Colors.primary]} 
+            />
+          }
         />
       )}
     </View>
@@ -97,65 +185,99 @@ export default function StudentDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: Colors.background,
   },
   header: {
-    backgroundColor: '#FFF',
+    backgroundColor: Colors.surface,
     padding: 24,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: Colors.border,
   },
   headerSub: {
     fontSize: 14,
-    color: '#6B7280',
+    color: Colors.text.secondary,
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#1F2937',
+    fontWeight: '800',
+    color: Colors.text.primary,
     marginTop: 4,
   },
   listContent: {
     padding: 20,
+    paddingBottom: 40,
   },
-  historyCard: {
+  timelineItem: {
     flexDirection: 'row',
-    backgroundColor: '#FFF',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
+    marginBottom: 20,
+    position: 'relative',
+  },
+  timelineLine: {
+    position: 'absolute',
+    left: 20,
+    top: 40,
+    bottom: -30,
+    width: 2,
+    backgroundColor: Colors.border,
+  },
+  timelineDot: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  iconContainer: {
-    padding: 12,
-    borderRadius: 12,
-    marginRight: 16,
-  },
-  historyContent: {
-    flex: 1,
-  },
-  historyTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  historySubtitle: {
-    fontSize: 14,
-    color: '#6B7280',
+    zIndex: 10,
     marginTop: 4,
   },
-  timeContainer: {
-    alignItems: 'flex-end',
+  timelineContent: {
+    flex: 1,
+    marginLeft: 16,
+  },
+  historyCard: {
+    padding: 16,
+    borderRadius: 16,
+  },
+  historyHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
   },
   timeText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: Colors.text.primary,
+  },
+  estadoText: {
     fontSize: 14,
-    fontWeight: 'bold',
-    color: '#4B5563',
+    fontWeight: '700',
+  },
+  historyBody: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  historyTitle: {
+    fontSize: 14,
+    color: Colors.text.secondary,
+  },
+  skeletonCard: {
+    padding: 16,
+    borderRadius: 16,
+    height: 80,
+    justifyContent: 'center',
+  },
+  skeletonTitle: {
+    height: 16,
+    backgroundColor: Colors.border,
+    borderRadius: 8,
+    width: '40%',
+    marginBottom: 12,
+  },
+  skeletonSub: {
+    height: 14,
+    backgroundColor: Colors.border,
+    borderRadius: 7,
+    width: '70%',
   },
   emptyContainer: {
     flex: 1,
@@ -166,7 +288,7 @@ const styles = StyleSheet.create({
   emptyText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#6B7280',
+    color: Colors.text.secondary,
     textAlign: 'center',
   }
 });

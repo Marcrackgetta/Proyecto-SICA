@@ -72,7 +72,7 @@ export default function MapComponent({ camaras, selectedCamaraId, onSelectCamara
     <MapContainer 
       center={centerPosition} 
       zoom={currentZoom} 
-      className="w-full h-full rounded-xl z-0 cursor-pointer"
+      className="w-full h-full rounded-2xl z-0 cursor-pointer"
     >
       <MapUpdater center={centerPosition} zoom={currentZoom} />
       <TileLayer

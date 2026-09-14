@@ -1,319 +1,57 @@
-# src/events/event_manager.py
 import logging
-from datetime import datetime, timedelta
-from typing import Any
-
-from src.network.notification_service import NotificationService
+from datetime import datetime
 from src.network.supabase_client import SupabaseClient
-from src.utils.config import HORARIOS_CONFIGURACIONES, CURSOS_MAPPING
+from src.network.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
 
-
-
 class EventManager:
-    """
-    Orquestador central del Modelo Híbrido de asistencia (Adaptado a múltiples horarios).
-    """
-
-    def __init__(
-        self, supabase_client: SupabaseClient, notification_service: NotificationService
-    ) -> None:
+    def __init__(self, supabase_client: SupabaseClient, notification_service: NotificationService = None):
         self.db = supabase_client
-        self.notif = notification_service
-
-        # Caché de estructura
-        self.cam_to_curso: dict[str, str] = {}
-        self.curso_to_estudiantes: dict[str, list[dict[str, str]]] = {}
-        self.todas_las_cedulas: set[str] = set()
-
-        # Memoria de eventos: { "YYYY-MM-DD": { curso_id: { "Hora_1": { "0912345678": "Presente" } } } }
-        self.processed_events: dict[str, dict[str, dict[str, dict[str, str]]]] = {}
-
-        # Bloques consolidados: set("YYYY-MM-DD_curso_id_Hora_1")
-        self.closed_blocks: set[str] = set()
-
-        self.last_sync_time = 0.0
-        self.engine_start_time = datetime.now()
+        self.notif = notification_service if notification_service else NotificationService()
+        self.processed_events = {}
+        self.last_sync_time = 0
 
     def sync_data(self) -> None:
-        if not self.db.is_connected:
-            return
-
-        now = datetime.now().timestamp()
-        if now - self.last_sync_time < 300:
-            return
-
-        # NUEVO: Sincronizar fuentes locales hacia Supabase para evitar eventos descartados
-        try:
-            from src.utils.config import CAMERA_SOURCES
-            # Asegurar que las cámaras existan en Supabase ANTES de consultar
-            for cam in CAMERA_SOURCES:
-                c_id = cam.get("camera_id")
-                c_curso = cam.get("curso")
-                if c_id and c_curso:
-                    # Upsert de la cámara (sin sobrescribir activa)
-                    self.db._post("camaras?on_conflict=id", [{"id": c_id, "nombre": cam.get("nombre", f"Cámara {c_id}")}], upsert=True)
-                    # Upsert del curso asociado
-                    self.db._post("cursos?on_conflict=id", [{"id": c_curso, "camara_id": c_id}], upsert=True)
-        except Exception as e:
-            logger.error(f"[EventManager] Error sembrando datos de cámara: {e}")
-
-        cursos = self.db.fetch_cursos()
-        estudiantes = self.db.fetch_estudiantes()
-
-        self.cam_to_curso.clear()
-        self.curso_to_estudiantes.clear()
-        self.todas_las_cedulas.clear()
-
-        # Prioridad a configuración local (Edge)
-        try:
-            from src.utils.config import CAMERA_SOURCES
-            for cam in CAMERA_SOURCES:
-                c_id = cam.get("camera_id")
-                c_curso = cam.get("curso")
-                if c_id and c_curso:
-                    self.cam_to_curso[c_id] = c_curso
-                    self.curso_to_estudiantes.setdefault(c_curso, [])
-        except Exception:
-            pass
-
-        for c in cursos:
-            c_id = c.get("id")
-            c_cam = c.get("camara_id")
-            if c_id:
-                self.curso_to_estudiantes.setdefault(c_id, [])
-                if c_cam and c_cam not in self.cam_to_curso:
-                    self.cam_to_curso[c_cam] = c_id
-
-        for e in estudiantes:
-            curso_id = e.get("curso_id")
-            cedula = e.get("cedula")
-            if curso_id and cedula:
-                if curso_id in self.curso_to_estudiantes:
-                    self.curso_to_estudiantes[curso_id].append(e)
-                self.todas_las_cedulas.add(cedula)
-
-        self.last_sync_time = now
-        logger.info("[EventManager] Estructura sincronizada con Supabase.")
-
-    def _get_curso_horario(self, curso_id: str) -> dict:
-        """Obtiene la configuración de horario para un curso específico."""
-        # Por defecto asigna BACH_MAT si no existe, o se puede lanzar un error
-        tipo = CURSOS_MAPPING.get(curso_id, "BACH_MAT")
-        return HORARIOS_CONFIGURACIONES.get(tipo, HORARIOS_CONFIGURACIONES["BACH_MAT"])
-
-    def _get_current_block(self, time_obj: datetime, horario: dict) -> str | None:
-        current_time_str = time_obj.strftime("%H:%M")
-        for block_name, hours in horario.items():
-            if hours["inicio"] <= current_time_str < hours["fin"]:
-                return block_name
-        return None
-
-    def _get_past_blocks(self, time_obj: datetime, horario: dict) -> list[str]:
-        current_time_str = time_obj.strftime("%H:%M")
-        start_time_str = self.engine_start_time.strftime("%H:%M")
-        is_startup_day = time_obj.date() == self.engine_start_time.date()
-        
-        past_blocks = []
-        for block_name, hours in horario.items():
-            if hours["fin"] <= current_time_str:
-                # Si estamos en el día de arranque, ignorar bloques que ya habían terminado
-                if is_startup_day and hours["fin"] <= start_time_str:
-                    continue
-                past_blocks.append(block_name)
-        return past_blocks
+        """
+        [DEPRECADO]
+        Mantenido por compatibilidad con main_gui.py y _run_training_thread.
+        La sincronización real ahora se maneja en tiempo real mediante PostgreSQL RPC (reportar_deteccion).
+        """
+        pass
 
     def _init_day_memory(self, date_str: str) -> None:
         if date_str not in self.processed_events:
             self.processed_events.clear()
-            self.closed_blocks.clear()
             self.processed_events[date_str] = {}
 
-        # Asegurar que cada curso tenga su espacio
-        for curso_id in self.curso_to_estudiantes.keys():
-            if curso_id not in self.processed_events[date_str]:
-                self.processed_events[date_str][curso_id] = {}
-                horario = self._get_curso_horario(curso_id)
-                for block in horario.keys():
-                    self.processed_events[date_str][curso_id][block] = {}
-
-    def register_recognition(self, identity_uuid: str, camera_id: str, track_id: int = None) -> None:
-        if identity_uuid in ("Calculando...", "Analizando..."):
-            return
-
+    def register_recognition(self, identity_uuid: str, camera_id: str, track_id=None) -> None:
         now = datetime.now()
-        date_str = now.strftime("%Y-%m-%d")
-
-        camera_zone = self.cam_to_curso.get(camera_id)
-        if not camera_zone:
+        date_str = now.strftime('%Y-%m-%d')
+        
+        if identity_uuid in ('unknown', 'Desconocido'):
             return
-
+            
+        cedula_memoria = identity_uuid.split('--')[0] if '--' in identity_uuid else identity_uuid
+        
         self._init_day_memory(date_str)
         
-        # 1. Extraer identidad y buscar curso real del estudiante
-        if identity_uuid in ("unknown", "Desconocido"):
-            # Usar track_id para permitir distinguir entre múltiples intrusos (o el mismo que vuelve) en memoria
-            track_suffix = f"_{track_id}" if track_id is not None else "_untracked"
-            cedula_memoria = f"unknown_person{track_suffix}"
-            nombre = "Visitante / No Reconocido"
-            estudiante_curso = None
-        else:
-            cedula_memoria = identity_uuid.split("--")[0] if "--" in identity_uuid else identity_uuid
-            nombre = identity_uuid.split("--")[1].replace("_", " ") if "--" in identity_uuid else identity_uuid
+        if camera_id not in self.processed_events[date_str]:
+            self.processed_events[date_str][camera_id] = {}
             
-            # Buscar en qué curso está matriculado
-            estudiante_curso = None
-            for c_id, estudiantes in self.curso_to_estudiantes.items():
-                if any(e["cedula"] == cedula_memoria for e in estudiantes):
-                    estudiante_curso = c_id
-                    break
-                    
-            # Auto-matriculación local: Si el motor IA lo reconoce (no es 'unknown') pero
-            # no está en Supabase, lo matriculamos dinámicamente en la zona actual,
-            # SIEMPRE Y CUANDO la cámara no sea una zona común (como el Patio).
-            if not estudiante_curso and "Patio" not in camera_zone:
-                estudiante_curso = camera_zone
-                self.curso_to_estudiantes.setdefault(camera_zone, []).append({"cedula": cedula_memoria, "nombre": nombre})
-
-        # 2. Contexto de horario y registro (Dónde se guarda el evento)
-        # El horario de referencia debe ser el del estudiante (para saber si está fugándose de SU clase)
-        time_context = estudiante_curso if estudiante_curso else camera_zone
-        horario = self._get_curso_horario(time_context)
-        current_block = self._get_current_block(now, horario)
+        last_seen = self.processed_events[date_str][camera_id].get(cedula_memoria)
         
-        # Si no hay bloque activo o es una hora libre, no evaluamos
-        if not current_block:
+        if last_seen and (now - last_seen).total_seconds() < 60:
             return
-
-        # La ubicación física estricta donde ocurrió el evento
-        event_location = camera_zone
-
-        # 3. Deduplicación por bloque y ubicación física
-        if event_location not in self.processed_events[date_str]:
-            self.processed_events[date_str][event_location] = {}
             
-        block_memory = self.processed_events[date_str][event_location].get(current_block, {})
+        self.processed_events[date_str][camera_id][cedula_memoria] = now
         
-        # Si ya reportamos a esta persona en esta ubicación durante este bloque, ignoramos
-        # PERO si estaba presente en su clase, y luego va al patio, event_location es distinto, por lo que SÍ se registrará.
-        if cedula_memoria in block_memory:
-            return
-
-        # 4. Lógica estricta de Ubicación Física
-        if not estudiante_curso:
-            estado = "Intruso"
-        else:
-            if event_location == estudiante_curso:
-                # Está en su clase correcta
-                inicio_clase_str = horario[current_block]["inicio"]
-                inicio_clase_dt = datetime.strptime(inicio_clase_str, "%H:%M").replace(
-                    year=now.year, month=now.month, day=now.day
-                )
-                tolerancia = inicio_clase_dt + timedelta(minutes=15)
-                estado = "Presente" if now <= tolerancia else "Atrasado"
-            elif "Patio" in event_location:
-                # Estudiante matriculado en zona prohibida durante clase
-                estado = "Fugado"
-            else:
-                # Estudiante matriculado pero detectado en OTRA aula que no le corresponde
-                estado = "Intruso"
-
-        self.processed_events[date_str][event_location].setdefault(current_block, {})[cedula_memoria] = estado
-        logger.info(f"[Supabase] Preparando evento: {estado} para {nombre} ({cedula_memoria}) en {event_location}")
-        self._dispatch_event(cedula_memoria, nombre, event_location, date_str, current_block, estado, camera_id)
+        now_iso = now.astimezone().isoformat()
+        
+        # Enviar deteccion pura a Supabase
+        logger.info(f'[EventManager] Reportando deteccion pura de {cedula_memoria} en {camera_id}')
+        self.db.reportar_deteccion(cedula_memoria, camera_id, now_iso)
 
     def check_schedules(self) -> None:
-        now = datetime.now()
-        date_str = now.strftime("%Y-%m-%d")
-        self._init_day_memory(date_str)
-
-        for curso_id in self.curso_to_estudiantes.keys():
-            horario = self._get_curso_horario(curso_id)
-            past_blocks = self._get_past_blocks(now, horario)
-
-            for block in past_blocks:
-                block_memory = self.processed_events[date_str][curso_id].get(block, {})
-                for est in self.curso_to_estudiantes.get(curso_id, []):
-                    cedula = est["cedula"]
-                    nombre = est.get("nombre", cedula)
-                    if cedula not in block_memory:
-                        estado = "Falto"
-                        self.processed_events[date_str][curso_id].setdefault(block, {})[cedula] = estado
-                        logger.info(f"[Supabase] Preparando evento por defecto: {estado} para {nombre} ({cedula})")
-                        self._dispatch_event(cedula, nombre, curso_id, date_str, block, estado, None)
-
-    def _consolidate_block(self, date_str: str, curso_id: str, block: str, horario: dict) -> None:
-        block_memory = self.processed_events[date_str][curso_id].get(block, {})
-        registros_batch = []
-        estudiantes = self.curso_to_estudiantes.get(curso_id, [])
-
-        for est in estudiantes:
-            cedula = est["cedula"]
-            if cedula in block_memory:
-                continue
-
-            estado = "Falta"
-            for prev_block in horario.keys():
-                if prev_block == block:
-                    break
-                
-                prev_state = self.processed_events[date_str][curso_id].get(prev_block, {}).get(cedula)
-                if prev_state in ("Presente", "Atrasado"):
-                    estado = "Fugado"
-                    break
-
-            self.processed_events[date_str][curso_id].setdefault(block, {})[cedula] = estado
-            
-            now_iso = datetime.now().astimezone().isoformat()
-            registros_batch.append({
-                "estudiante_cedula": cedula,
-                "curso_id": curso_id,
-                "fecha": date_str,
-                "hora_clase": block,
-                "estado": estado,
-                "timestamp_deteccion": now_iso
-            })
-            
-            nombre_tmp = f"Estudiante {cedula}" 
-            if estado == "Falta":
-                self.notif.notificar_estudiante_ausente(cedula, nombre_tmp, curso_id)
-
-        if registros_batch:
-            success = self.db.registrar_asistencia_batch(registros_batch)
-            if not success:
-                logger.error(f"[EventManager] Error al consolidar batch de {curso_id} - {block}.")
-
-    def _dispatch_event(
-        self,
-        cedula: str,
-        nombre: str,
-        curso_id: str,
-        fecha: str,
-        hora_clase: str,
-        estado: str,
-        camera_id: str,
-    ) -> None:
-        now_iso = datetime.now().astimezone().isoformat()
-        
-        # Si es un intruso, no lo mandamos a la tabla estudiantes, mandamos NULL como estudiante_cedula
-        db_cedula = None if cedula.startswith("unknown_person") else cedula
-        
-        registro = [{
-            "estudiante_cedula": db_cedula,
-            "estudiante_nombre": nombre,
-            "curso_id": curso_id,
-            "fecha": fecha,
-            "hora_clase": hora_clase,
-            "estado": estado,
-            "timestamp_deteccion": now_iso
-        }]
-
-        success = self.db.registrar_asistencia_batch(registro)
-        if not success:
-            logger.error(f"[EventManager] Falló envío en RT para {cedula} ({estado}).")
-
-        if estado in ("Presente", "Atrasado"):
-            self.notif.notificar_estudiante_presente(cedula, nombre, curso_id)
-        elif estado == "Intruso":
-            self.notif.notificar_intruso(camera_id or "Desconocida", f"Curso {curso_id}")
+        # Ya no evaluamos los horarios locales. La responsabilidad paso a PostgreSQL.
+        pass
