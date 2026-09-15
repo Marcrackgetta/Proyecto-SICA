@@ -83,15 +83,15 @@ const styles = StyleSheet.create({
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.surfaceAlt,
     borderWidth: 1,
     borderColor: Colors.border,
-    borderRadius: 14,
+    borderRadius: 16,
     height: 52,
   },
   inputFocused: {
     borderColor: Colors.primary,
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.surfaceAlt,
     shadowColor: Colors.primary,
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.1,

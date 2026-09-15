@@ -119,89 +119,158 @@ export default function DashboardPage() {
     
     if (errCurso || !curso) return;
 
-    let HORAS_CLASE: string[] = [];
-    if (horariosConfig) {
-      let tipo = horariosConfig.CURSOS_MAPPING?.[curso.id];
-      if (curso.id === "Patio_Central") {
-        tipo = jornadaSel === "Matutina" ? "BACH_MAT" : "VESP_BACH";
-      } else {
-        tipo = jornadaSel === "Matutina" ? "BACH_MAT" : "VESP_BACH";
-      }
-      
-      const configHorario = horariosConfig.CONFIGURACIONES?.[tipo] || {};
-      HORAS_CLASE = Object.keys(configHorario);
-    } else {
-      HORAS_CLASE = ["Hora_1", "Hora_2", "Hora_3", "Hora_4", "Recreo", "Hora_5", "Hora_6", "Hora_7", "Hora_8"];
-    }
+    // Obtener total de estudiantes matriculados en el curso para calcular Faltas
+    const { count: totalEstudiantes } = await supabase
+      .from("estudiantes")
+      .select("*", { count: 'exact', head: true })
+      .eq("curso_id", curso.id);
 
+    // Obtener Asistencia Diaria (Solo para el contador de Presentes reales)
     const { data: asistencia, error: errAsist } = await supabase
       .from("asistencia_diaria")
-      .select(
-        "estado_llegada, estado_ubicacion, hora_llegada, ultima_actualizacion, estudiante_cedula, estudiantes(nombre, curso_id)"
-      )
-      .eq("fecha", date);
+      .select("estudiante_cedula, estudiantes!inner(curso_id)")
+      .eq("fecha", date)
+      .eq("estudiantes.curso_id", curso.id);
+
+    // Obtener Historial de Eventos (Timeline) para la grafica por horas y tabla de registros
+    const { data: eventos, error: errEventos } = await supabase
+      .from("historial_eventos")
+      .select("id, estado_consolidado, timestamp_evento, estudiante_cedula, estudiantes!inner(nombre, curso_id)")
+      .eq("fecha", date)
+      .eq("estudiantes.curso_id", curso.id)
+      .order("timestamp_evento", { ascending: true });
 
     if (errAsist) return;
 
+    const counts = { Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
+    const tablaTemp: any[] = [];
+
+    // 1. Contar los Presentes oficiales basados en asistencia_diaria (un registro por estudiante por dia)
     if (asistencia) {
-      const counts = { Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
-      const horasData: Record<string, any> = {};
-      
-      HORAS_CLASE.forEach((h) => {
-        horasData[h] = {
-          name: h.replace("_", " "),
-          Presente: 0,
-          Falta: 0,
-          Fugado: 0,
-          Intruso: 0,
-        };
-      });
-
-      const tablaTemp: any[] = [];
-
-      asistencia.forEach((reg: any) => {
-        // Filtro local simulando curso (en un multi-tenant real esto se filtra arriba)
-        if (reg.estudiantes && reg.estudiantes.curso_id !== curso.id) return;
-
-        let estadoLogico = reg.estado_ubicacion || reg.estado_llegada || 'Ausente';
-        let estadoGrafica = estadoLogico as keyof typeof counts;
-        
-        if (estadoLogico.includes('Presente') || estadoLogico.includes('Atrasado') || estadoLogico.includes('clase')) {
-            estadoGrafica = 'Presente';
-        } else if (estadoLogico.includes('Fugado')) {
-            estadoGrafica = 'Fugado';
-        } else if (estadoLogico.includes('Intruso')) {
-            estadoGrafica = 'Intruso';
-        } else {
-            estadoGrafica = 'Falta';
-        }
-
-        if (counts[estadoGrafica] !== undefined) counts[estadoGrafica]++;
-
-        let mockHora = "Total del Día";
-        if (!horasData[mockHora]) {
-          horasData[mockHora] = { name: mockHora, Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
-        }
-        if (horasData[mockHora][estadoGrafica] !== undefined) {
-           horasData[mockHora][estadoGrafica]++;
-        }
-
-        tablaTemp.push({
-          id: reg.ultima_actualizacion || Math.random().toString(),
-          hora: "Llegada: " + (reg.hora_llegada ? new Date(reg.hora_llegada).toLocaleTimeString() : "--:--"),
-          cedula: reg.estudiante_cedula,
-          nombre: reg.estudiantes?.nombre || "Desconocido / Visitante",
-          estado: estadoLogico,
-          hora_registro: reg.ultima_actualizacion 
-              ? new Date(reg.ultima_actualizacion).toLocaleTimeString() 
-              : "Sin Hora",
-        });
-      });
-
-      setTotales(counts);
-      setHistorialHoras(Object.values(horasData));
-      setTablaRegistros(tablaTemp.reverse());
+      counts.Presente = asistencia.length;
     }
+
+    // Calcular Faltas reales
+    counts.Falta = Math.max(0, (totalEstudiantes || 0) - counts.Presente);
+
+    // 2. Procesar Eventos Historicos (Grafico y Tabla)
+    const horasData: Record<string, any> = {};
+    
+    // Determinar el Tipo de Horario y Bloques Oficiales basado estrictamente en horarios.json
+    let tipo = null;
+    let configHorario: any = null;
+    let blocks: { key: string, inicioMin: number, finMin: number, name: string }[] = [];
+    
+    if (horariosConfig && horariosConfig.CURSOS_MAPPING) {
+      tipo = horariosConfig.CURSOS_MAPPING[curso.id];
+      if (tipo && horariosConfig.CONFIGURACIONES[tipo]) {
+        configHorario = horariosConfig.CONFIGURACIONES[tipo];
+        
+        // Convertir cada bloque configurado a un objeto evaluable (minutos desde las 00:00)
+        Object.keys(configHorario).forEach(k => {
+           let inicioStr = configHorario[k].inicio.split(':');
+           let finStr = configHorario[k].fin.split(':');
+           blocks.push({
+             key: k,
+             name: k.replace("_", " "),
+             inicioMin: parseInt(inicioStr[0]) * 60 + parseInt(inicioStr[1]),
+             finMin: parseInt(finStr[0]) * 60 + parseInt(finStr[1])
+           });
+        });
+      }
+    }
+
+    // Inicializar los buckets
+    if (blocks.length > 0) {
+      blocks.sort((a, b) => a.inicioMin - b.inicioMin);
+      blocks.forEach(b => {
+         horasData[b.key] = { name: b.name, Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
+      });
+    } else {
+      for (let i = 6; i <= 18; i++) {
+        let hLabel = `${i.toString().padStart(2, '0')}:00`;
+        horasData[hLabel] = { name: hLabel, Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
+      }
+    }
+
+    if (eventos && !errEventos) {
+      eventos.forEach((ev: any) => {
+        let estado = ev.estado_consolidado;
+        let dt = new Date(ev.timestamp_evento);
+        let timeInMins = dt.getHours() * 60 + dt.getMinutes();
+        let matchedKey = null;
+
+        // Registrar en la Tabla de Eventos Detallada
+        let bloqueAsignado = "Detectado";
+        if (blocks.length > 0) {
+           let found = blocks.find(b => timeInMins >= b.inicioMin && timeInMins <= b.finMin);
+           if (found) bloqueAsignado = found.name;
+           else bloqueAsignado = "Fuera de hora";
+        }
+        
+        tablaTemp.push({
+          id: ev.id,
+          hora: "Evento: " + bloqueAsignado,
+          cedula: ev.estudiante_cedula,
+          nombre: ev.estudiantes?.nombre || "Desconocido / Visitante",
+          estado: estado,
+          hora_registro: dt.toLocaleTimeString()
+        });
+
+        if (blocks.length > 0) {
+          for (let b of blocks) {
+             if (timeInMins >= b.inicioMin && timeInMins <= b.finMin) {
+               matchedKey = b.key;
+               break;
+             }
+          }
+          if (!matchedKey) {
+             let closest = blocks[0];
+             let minDiff = 99999;
+             for (let b of blocks) {
+                let diff = Math.min(Math.abs(timeInMins - b.inicioMin), Math.abs(timeInMins - b.finMin));
+                if (diff < minDiff) {
+                   minDiff = diff;
+                   closest = b;
+                }
+             }
+             matchedKey = closest.key;
+          }
+        } else {
+          matchedKey = `${dt.getHours().toString().padStart(2, '0')}:00`;
+        }
+
+        // Sumar contadores de eventos anómalos
+        if (estado.includes('Fugado')) counts.Fugado++;
+        if (estado.includes('Intruso')) counts.Intruso++;
+        
+        // Poblar grafica horaria
+        if (horasData[matchedKey]) {
+          if (estado.includes('Presente') || estado.includes('Atrasado') || estado.includes('clase')) {
+            horasData[matchedKey].Presente++;
+          } else if (estado.includes('Fugado')) {
+            horasData[matchedKey].Fugado++;
+          } else if (estado.includes('Intruso')) {
+            horasData[matchedKey].Intruso++;
+          }
+        }
+      });
+    }
+
+    const arrHoras = Object.values(horasData);
+    
+    // Anadir el bloque "Total" al final del grafico
+    arrHoras.push({
+      name: "Total",
+      Presente: counts.Presente,
+      Falta: counts.Falta,
+      Fugado: counts.Fugado,
+      Intruso: counts.Intruso
+    });
+
+    setTotales(counts);
+    setHistorialHoras(arrHoras);
+    setTablaRegistros(tablaTemp.reverse());
   };
 
   const camaraActiva = camaras.find((c) => c.id === camaraSel);

@@ -17,43 +17,22 @@ export default function StudentDetailScreen() {
   const fetchHistorial = async () => {
     const d = new Date();
     const today = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-    const { data } = await supabase
-      .from('asistencia_diaria')
-      .select('*')
+    
+    // Consultar el historial real de eventos
+    const { data, error } = await supabase
+      .from('historial_eventos')
+      .select('id, estado_consolidado, timestamp_evento, camara_id')
       .eq('estudiante_cedula', id)
       .eq('fecha', today)
-      .single();
+      .order('timestamp_evento', { ascending: false });
 
-    if (data) {
-      const events = [];
-      
-      if (data.hora_salida) {
-        events.push({
-          id: 'salida',
-          timestamp_deteccion: data.hora_salida,
-          estado: 'Salida',
-          hora_clase: 'Fin de jornada'
-        });
-      }
-      
-      if (data.estado_ubicacion && data.ultima_actualizacion) {
-        events.push({
-          id: 'actual',
-          timestamp_deteccion: data.ultima_actualizacion,
-          estado: data.estado_ubicacion,
-          hora_clase: 'Última detección'
-        });
-      }
-      
-      if (data.hora_llegada) {
-        events.push({
-          id: 'llegada',
-          timestamp_deteccion: data.hora_llegada,
-          estado: data.estado_llegada || 'Llegada',
-          hora_clase: 'Ingreso a institución'
-        });
-      }
-      
+    if (data && data.length > 0) {
+      const events = data.map((evento) => ({
+        id: evento.id,
+        timestamp_deteccion: evento.timestamp_evento,
+        estado: evento.estado_consolidado,
+        hora_clase: evento.camara_id || 'Detectado'
+      }));
       setHistorial(events);
     } else {
       setHistorial([]);
@@ -78,7 +57,8 @@ export default function StudentDetailScreen() {
 
   const getStatusType = (estado: string) => {
     const e = estado.toLowerCase();
-    if (e.includes('presente') || e.includes('atrasado') || e.includes('llegada')) return 'success';
+    if (e.includes('presente') || e.includes('llegada')) return 'success';
+    if (e.includes('atrasado')) return 'warning';
     if (e.includes('salida') || e.includes('clase')) return 'neutral';
     if (e.includes('fugado')) return 'warning';
     if (e.includes('intruso') || e.includes('falta') || e.includes('ausente') || e.includes('falto')) return 'danger';
@@ -134,7 +114,7 @@ export default function StudentDetailScreen() {
           <Card style={styles.historyCard}>
             <View style={styles.historyHeader}>
               <Text style={styles.timeText}>{time}</Text>
-              <Text style={[styles.estadoText, { color: getStatusType(item.estado) === 'success' ? Colors.status.success : getStatusType(item.estado) === 'danger' ? Colors.status.danger : Colors.status.warning }]}>
+              <Text style={[styles.estadoText, { color: type === 'success' ? Colors.status.success : type === 'danger' ? Colors.status.danger : type === 'warning' ? Colors.status.warning : Colors.status.neutral }]}>
                 {item.estado}
               </Text>
             </View>
@@ -190,8 +170,15 @@ const styles = StyleSheet.create({
   header: {
     backgroundColor: Colors.surface,
     padding: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    paddingBottom: 28,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
+    shadowColor: Colors.primaryDark,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+    zIndex: 10,
   },
   headerSub: {
     fontSize: 14,

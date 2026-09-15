@@ -274,28 +274,30 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   header: {
-    backgroundColor: Colors.surface,
+    backgroundColor: Colors.primary,
     padding: 24,
-    paddingTop: 32,
+    paddingTop: 48, // accounts for notch
+    paddingBottom: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomWidth: 0,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
   },
   greeting: {
     fontSize: 14,
-    color: Colors.text.secondary,
+    color: 'rgba(255, 255, 255, 0.8)',
     marginBottom: 4,
   },
   name: {
     fontSize: 20,
     fontWeight: '800',
-    color: Colors.text.primary,
+    color: Colors.text.inverse,
   },
   logoutBtn: {
     padding: 10,
-    backgroundColor: Colors.background,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     borderRadius: 12,
   },
   content: {

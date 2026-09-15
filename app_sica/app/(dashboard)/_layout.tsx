@@ -16,8 +16,8 @@ export default function DashboardLayout() {
   return (
     <Stack
       screenOptions={{
-        headerStyle: { backgroundColor: Colors.surface },
-        headerTintColor: Colors.text.primary,
+        headerStyle: { backgroundColor: Colors.primary },
+        headerTintColor: Colors.text.inverse,
         headerTitleStyle: { fontWeight: '700', fontSize: 18 },
         headerShadowVisible: false,
       }}
@@ -26,6 +26,7 @@ export default function DashboardLayout() {
         name="index" 
         options={{ 
           title: 'SICA Familias',
+          headerShown: false,
         }} 
       />
       <Stack.Screen 

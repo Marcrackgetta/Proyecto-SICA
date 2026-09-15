@@ -18,12 +18,16 @@ export const Card: React.FC<CardProps> = ({ children, style, ...props }) => {
 const styles = StyleSheet.create({
   card: {
     backgroundColor: Colors.surface,
-    borderRadius: 20,
+    borderRadius: 24, // Slightly rounder for modern feel
     padding: 24,
-    shadowColor: Colors.text.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 4,
+    // Modern soft shadow
+    shadowColor: Colors.primaryDark,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    elevation: 3,
+    // Subtle border defines the card against the background
+    borderWidth: 1,
+    borderColor: 'rgba(226, 232, 240, 0.6)',
   },
 });
