@@ -119,10 +119,10 @@ export default function DashboardPage() {
     
     if (errCurso || !curso) return;
 
-    // Obtener total de estudiantes matriculados en el curso para calcular Faltas
-    const { count: totalEstudiantes } = await supabase
+    // Obtener total de estudiantes matriculados en el curso para calcular Faltas y agregarlos a la tabla
+    const { data: todosEstudiantes, count: totalEstudiantes } = await supabase
       .from("estudiantes")
-      .select("*", { count: 'exact', head: true })
+      .select("cedula, nombre", { count: 'exact' })
       .eq("curso_id", curso.id);
 
     // Obtener Asistencia Diaria (Solo para el contador de Presentes reales)
@@ -133,14 +133,25 @@ export default function DashboardPage() {
       .eq("estudiantes.curso_id", curso.id);
 
     // Obtener Historial de Eventos (Timeline) para la grafica por horas y tabla de registros
-    const { data: eventos, error: errEventos } = await supabase
+    // Se trae camara_id para poder asociar los intrusos a la camara donde fueron detectados físicamente.
+    const { data: eventosBrutos, error: errEventos } = await supabase
       .from("historial_eventos")
-      .select("id, estado_consolidado, timestamp_evento, estudiante_cedula, estudiantes!inner(nombre, curso_id)")
+      .select("id, estado_consolidado, timestamp_evento, estudiante_cedula, camara_id, estudiantes!inner(nombre, curso_id)")
       .eq("fecha", date)
-      .eq("estudiantes.curso_id", curso.id)
       .order("timestamp_evento", { ascending: true });
 
     if (errAsist) return;
+
+    // Filtro condicional:
+    // - Intruso -> Pertenece a la camara_id donde ocurrio la deteccion.
+    // - Otros (Presente, Fugado, etc) -> Pertenecen al curso de origen del estudiante.
+    const eventos = (eventosBrutos || []).filter((ev: any) => {
+      if (ev.estado_consolidado === 'Intruso') {
+        return ev.camara_id === camaraId;
+      } else {
+        return ev.estudiantes?.curso_id === curso.id;
+      }
+    });
 
     const counts = { Presente: 0, Falta: 0, Fugado: 0, Intruso: 0 };
     const tablaTemp: any[] = [];
@@ -253,6 +264,23 @@ export default function DashboardPage() {
           } else if (estado.includes('Intruso')) {
             horasData[matchedKey].Intruso++;
           }
+        }
+      });
+    }
+
+    // Anadir a los estudiantes con Falta a la Tabla de Registros y al CSV
+    if (todosEstudiantes && asistencia) {
+      const cedulasPresentes = new Set(asistencia.map((a: any) => a.estudiante_cedula));
+      todosEstudiantes.forEach((est: any) => {
+        if (!cedulasPresentes.has(est.cedula)) {
+          tablaTemp.push({
+            id: "falta-" + est.cedula,
+            hora: "Ausente",
+            cedula: est.cedula,
+            nombre: est.nombre,
+            estado: "Falta",
+            hora_registro: "--:--"
+          });
         }
       });
     }

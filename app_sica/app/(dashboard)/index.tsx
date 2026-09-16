@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, ScrollView } from 'react-native';
 import { useAuthStore } from '@/store/authStore';
 import { useStudentStore } from '@/store/studentStore';
-import { LogOut, UserPlus, ShieldAlert, CheckCircle, Clock, Search, MapPin } from 'lucide-react-native';
+import { LogOut, UserPlus, ShieldAlert, CheckCircle, Clock, Search, MapPin, AlertTriangle, LogOut as LogOutIcon, ChevronRight } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '@/services/supabase';
 
@@ -27,8 +27,7 @@ export default function DashboardScreen() {
   const [institucionInfo, setInstitucionInfo] = useState<any>(null);
   const [verificandoAmie, setVerificandoAmie] = useState(false);
   
-  const [ultimoEstado, setUltimoEstado] = useState('Desconocido');
-  const [ultimaHora, setUltimaHora] = useState('--:--');
+  const [resumenHoy, setResumenHoy] = useState<any>({ llegada: null, anomalia: null, salida: null });
 
   useEffect(() => {
     if (user?.id) {
@@ -43,20 +42,15 @@ export default function DashboardScreen() {
   useEffect(() => {
     let channel: any;
     if (vinculacionStatus === 'VINCULADO' && estudiante?.cedula) {
-      fetchUltimaAsistencia(estudiante.cedula);
+      fetchEventosResumen(estudiante.cedula);
 
       channel = supabase
-        .channel('public:asistencia_diaria')
+        .channel('public:historial_eventos')
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'asistencia_diaria', filter: `estudiante_cedula=eq.${estudiante.cedula}` },
+          { event: 'INSERT', schema: 'public', table: 'historial_eventos', filter: `estudiante_cedula=eq.${estudiante.cedula}` },
           (payload) => {
-            const row = payload.new as any;
-            if (row && (row.estado_ubicacion || row.estado_llegada)) {
-              setUltimoEstado(row.estado_ubicacion || row.estado_llegada || 'Desconocido');
-              const date = new Date(row.ultima_actualizacion);
-              setUltimaHora(`${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`);
-            }
+             fetchEventosResumen(estudiante.cedula);
           }
         )
         .subscribe();
@@ -66,24 +60,38 @@ export default function DashboardScreen() {
     };
   }, [vinculacionStatus, estudiante?.cedula]);
 
-  async function fetchUltimaAsistencia(cedula: string) {
+  async function fetchEventosResumen(cedula: string) {
     const d = new Date();
     const today = new Date(d.getTime() - (d.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
-    const { data } = await supabase
-      .from('asistencia_diaria')
-      .select('*')
+    const { data, error } = await supabase
+      .from('historial_eventos')
+      .select('id, estado_consolidado, timestamp_evento')
       .eq('estudiante_cedula', cedula)
       .eq('fecha', today)
-      .limit(1)
-      .single();
+      .order('timestamp_evento', { ascending: true });
 
-    if (data) {
-      setUltimoEstado(data.estado_ubicacion || data.estado_llegada || 'Desconocido');
-      const date = new Date(data.ultima_actualizacion);
-      setUltimaHora(`${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`);
+    if (error) {
+      console.error('Error fetching resumen:', error);
+      return;
+    }
+
+    if (data && data.length > 0) {
+      let evLlegada = data.find((e: any) => e.estado_consolidado?.toLowerCase().includes('presente') || e.estado_consolidado?.toLowerCase().includes('atrasado'));
+      let evAnomalia = [...data].reverse().find((e: any) => e.estado_consolidado?.toLowerCase().includes('fugado') || e.estado_consolidado?.toLowerCase().includes('intruso'));
+      let evSalida = [...data].reverse().find((e: any) => e.estado_consolidado?.toLowerCase().includes('salida') || e.estado_consolidado?.toLowerCase().includes('despues'));
+      
+      // Fallback por si la logica falla
+      if (!evLlegada && data.length > 0) {
+         evLlegada = data[0];
+      }
+
+      setResumenHoy({
+         llegada: evLlegada || null,
+         anomalia: evAnomalia || null,
+         salida: evSalida || null
+      });
     } else {
-      setUltimoEstado('Ausente');
-      setUltimaHora('--:--');
+      setResumenHoy({ llegada: null, anomalia: null, salida: null });
     }
   }
 
@@ -123,13 +131,10 @@ export default function DashboardScreen() {
 
   const nombreUsuario = user?.user_metadata?.nombre_completo || 'Representante';
 
-  // Helper para Badge
-  const getStatusType = (estado: string) => {
-    const e = estado.toLowerCase();
-    if (e.includes('presente') || e.includes('atrasado')) return 'success';
-    if (e.includes('fugado')) return 'warning';
-    if (e.includes('intruso') || e.includes('falta') || e.includes('ausente') || e.includes('falto')) return 'danger';
-    return 'neutral';
+  const formatTime = (ts: string) => {
+    if (!ts) return '--:--';
+    const d = new Date(ts);
+    return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
 
   return (
@@ -239,29 +244,95 @@ export default function DashboardScreen() {
         )}
 
         {vinculacionStatus === 'VINCULADO' && (
-          <TouchableOpacity activeOpacity={0.8} onPress={() => router.push(`/(dashboard)/student/${estudiante.cedula}`)}>
-            <Card style={styles.studentCard}>
-              <View style={styles.studentHeader}>
-                <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarText}>{estudiante.nombre?.charAt(0).toUpperCase() || 'E'}</Text>
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.studentName}>{estudiante.nombre}</Text>
-                  <Text style={styles.studentCedula}>C.I: {estudiante.cedula}</Text>
-                </View>
-                <Badge label={ultimoEstado} status={getStatusType(ultimoEstado)} />
+          <View>
+            <View style={styles.studentHeader}>
+              <View style={styles.avatarCircle}>
+                <Text style={styles.avatarText}>{estudiante.nombre?.charAt(0).toUpperCase() || 'E'}</Text>
               </View>
-              
-              <View style={styles.divider} />
-              
-              <View style={styles.statusRow}>
-                <View style={styles.timeBadge}>
-                  <Clock color={Colors.text.secondary} size={16} style={{ marginRight: 6 }} />
-                  <Text style={styles.timeText}>Última actividad: {ultimaHora}</Text>
-                </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.studentName}>{estudiante.nombre}</Text>
+                <Text style={styles.studentCedula}>C.I: {estudiante.cedula}</Text>
               </View>
-            </Card>
-          </TouchableOpacity>
+            </View>
+            
+            <View style={{ marginTop: 16, marginBottom: 8 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: Colors.text.primary, marginLeft: 4 }}>
+                Resumen del día
+              </Text>
+            </View>
+
+            <View style={{ gap: 12 }}>
+              {/* 1. LLEGADA */}
+              <Card style={[styles.eventCard, resumenHoy.llegada ? { borderLeftColor: Colors.status.success } : {}]}>
+                <View style={styles.eventIcon}>
+                  <CheckCircle color={resumenHoy.llegada ? Colors.status.success : Colors.text.muted} size={24} />
+                </View>
+                <View style={styles.eventInfo}>
+                  <Text style={styles.eventTitle}>Llegada a la Institución</Text>
+                  {resumenHoy.llegada ? (
+                    <Text style={[styles.eventSubtitle, { color: Colors.text.primary, fontWeight: '600' }]}>
+                      Presente / En clase {resumenHoy.llegada.estado_consolidado === 'Atrasado' ? '— Atrasado' : ''}
+                    </Text>
+                  ) : (
+                    <Text style={styles.eventSubtitle}>Aún no registrado</Text>
+                  )}
+                </View>
+                <View style={styles.eventTime}>
+                  <Text style={styles.eventTimeText}>{formatTime(resumenHoy.llegada?.timestamp_evento)}</Text>
+                </View>
+              </Card>
+
+              {/* 2. FUERA DEL CURSO */}
+              <Card style={[styles.eventCard, resumenHoy.anomalia ? { borderLeftColor: Colors.status.warning } : {}]}>
+                <View style={styles.eventIcon}>
+                  <AlertTriangle color={resumenHoy.anomalia ? Colors.status.warning : Colors.text.muted} size={24} />
+                </View>
+                <View style={styles.eventInfo}>
+                  <Text style={styles.eventTitle}>Fuera del Curso</Text>
+                  {resumenHoy.anomalia ? (
+                    <Text style={[styles.eventSubtitle, { color: Colors.status.warning, fontWeight: '600' }]}>
+                      Detección: {resumenHoy.anomalia.estado_consolidado}
+                    </Text>
+                  ) : (
+                    <Text style={styles.eventSubtitle}>Sin anomalías</Text>
+                  )}
+                </View>
+                <View style={styles.eventTime}>
+                  <Text style={styles.eventTimeText}>{formatTime(resumenHoy.anomalia?.timestamp_evento)}</Text>
+                </View>
+              </Card>
+
+              {/* 3. SALIDA */}
+              <Card style={[styles.eventCard, resumenHoy.salida ? { borderLeftColor: Colors.status.neutral } : {}]}>
+                <View style={styles.eventIcon}>
+                  <LogOutIcon color={resumenHoy.salida ? Colors.status.neutral : Colors.text.muted} size={24} />
+                </View>
+                <View style={styles.eventInfo}>
+                  <Text style={styles.eventTitle}>Salida / Última vez visto</Text>
+                  {resumenHoy.salida ? (
+                    <Text style={[styles.eventSubtitle, { color: Colors.text.primary, fontWeight: '600' }]}>
+                      Salida Registrada
+                    </Text>
+                  ) : (
+                    <Text style={styles.eventSubtitle}>Aún en la institución</Text>
+                  )}
+                </View>
+                <View style={styles.eventTime}>
+                  <Text style={styles.eventTimeText}>{formatTime(resumenHoy.salida?.timestamp_evento)}</Text>
+                </View>
+              </Card>
+            </View>
+
+            <TouchableOpacity 
+              activeOpacity={0.8} 
+              onPress={() => router.push(`/(dashboard)/student/${estudiante.cedula}`)}
+              style={styles.detailButton}
+            >
+              <Text style={styles.detailButtonText}>Ver Actividad de hoy (Detalle)</Text>
+              <ChevronRight color={Colors.primary} size={20} />
+            </TouchableOpacity>
+
+          </View>
         )}
       </View>
     </ScrollView>
@@ -269,149 +340,35 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.background,
-  },
-  header: {
-    backgroundColor: Colors.primary,
-    padding: 24,
-    paddingTop: 48, // accounts for notch
-    paddingBottom: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 0,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  greeting: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
-    marginBottom: 4,
-  },
-  name: {
-    fontSize: 20,
-    fontWeight: '800',
-    color: Colors.text.inverse,
-  },
-  logoutBtn: {
-    padding: 10,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 12,
-  },
-  content: {
-    padding: 24,
-  },
-  centerBox: {
-    marginTop: 60,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  cardCenter: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
-  iconCirclePrimary: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: Colors.primaryLight,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  iconCircleWarning: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: Colors.status.warningBg,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  cardTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: Colors.text.primary,
-    textAlign: 'center',
-    marginBottom: 12,
-  },
-  cardSub: {
-    fontSize: 15,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    marginBottom: 24,
-    lineHeight: 22,
-  },
-  infoBox: {
-    backgroundColor: Colors.background,
-    padding: 16,
-    borderRadius: 12,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  infoText: {
-    fontSize: 14,
-    color: Colors.text.secondary,
-    textAlign: 'center',
-    lineHeight: 20,
-  },
-  studentCard: {
-    padding: 20,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.primary,
-  },
-  studentHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatarCircle: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  avatarText: {
-    color: Colors.text.inverse,
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  studentName: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: Colors.text.primary,
-    marginBottom: 4,
-  },
-  studentCedula: {
-    fontSize: 14,
-    color: Colors.text.muted,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: Colors.border,
-    marginVertical: 16,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-  },
-  timeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.background,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
-  },
-  timeText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.text.secondary,
-  }
+  container: { flex: 1, backgroundColor: Colors.background },
+  header: { backgroundColor: Colors.primary, padding: 24, paddingTop: 48, paddingBottom: 24, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomLeftRadius: 24, borderBottomRightRadius: 24 },
+  greeting: { fontSize: 14, color: 'rgba(255, 255, 255, 0.8)', marginBottom: 4 },
+  name: { fontSize: 20, fontWeight: '800', color: Colors.text.inverse },
+  logoutBtn: { padding: 10, backgroundColor: 'rgba(255, 255, 255, 0.2)', borderRadius: 12 },
+  content: { padding: 24 },
+  centerBox: { marginTop: 60, alignItems: 'center', justifyContent: 'center' },
+  cardCenter: { alignItems: 'center', paddingVertical: 32 },
+  iconCirclePrimary: { width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.primaryLight, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  iconCircleWarning: { width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.status.warningBg, justifyContent: 'center', alignItems: 'center', marginBottom: 20 },
+  cardTitle: { fontSize: 22, fontWeight: '800', color: Colors.text.primary, textAlign: 'center', marginBottom: 12 },
+  cardSub: { fontSize: 15, color: Colors.text.secondary, textAlign: 'center', marginBottom: 24, lineHeight: 22 },
+  infoBox: { backgroundColor: Colors.background, padding: 16, borderRadius: 12, marginTop: 8, borderWidth: 1, borderColor: Colors.border },
+  infoText: { fontSize: 14, color: Colors.text.secondary, textAlign: 'center', lineHeight: 20 },
+  
+  studentHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
+  avatarCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: Colors.primary, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  avatarText: { color: Colors.text.inverse, fontSize: 22, fontWeight: 'bold' },
+  studentName: { fontSize: 18, fontWeight: 'bold', color: Colors.text.primary },
+  studentCedula: { fontSize: 14, color: Colors.text.secondary, marginTop: 2 },
+  
+  eventCard: { flexDirection: 'row', alignItems: 'center', padding: 16, borderLeftWidth: 4, borderLeftColor: Colors.border, borderRadius: 12 },
+  eventIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.surface, justifyContent: 'center', alignItems: 'center', marginRight: 14, borderWidth: 1, borderColor: Colors.border },
+  eventInfo: { flex: 1 },
+  eventTitle: { fontSize: 13, color: Colors.text.secondary, fontWeight: '600', marginBottom: 4 },
+  eventSubtitle: { fontSize: 15, color: Colors.text.muted },
+  eventTime: { marginLeft: 12 },
+  eventTimeText: { fontSize: 15, fontWeight: 'bold', color: Colors.text.primary },
+  
+  detailButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primaryLight, paddingVertical: 14, borderRadius: 12, marginTop: 24 },
+  detailButtonText: { color: Colors.primary, fontWeight: '700', fontSize: 15, marginRight: 6 }
 });
