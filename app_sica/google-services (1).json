@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "220017853574",
+    "project_id": "sica-fa2be",
+    "storage_bucket": "sica-fa2be.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:220017853574:android:c42f4212d730d256113d07",
+        "android_client_info": {
+          "package_name": "com.sica.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDYbGfoJm-Oij6n_DBvD8rLR4iS7RIyJzs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

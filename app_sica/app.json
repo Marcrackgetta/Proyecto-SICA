@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "app_sica",
+    "name": "SICA Parent",
     "slug": "app_sica",
     "scheme": "appsica",
     "version": "1.0.0",
@@ -18,7 +18,8 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "softwareKeyboardLayoutMode": "pan"
+      "softwareKeyboardLayoutMode": "pan",
+      "package": "com.sica.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -27,6 +28,12 @@
       "expo-router",
       "expo-status-bar",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "e8cb6bd4-1764-4e90-9ac9-49f5c3c92413"
+      }
+    }
   }
 }
