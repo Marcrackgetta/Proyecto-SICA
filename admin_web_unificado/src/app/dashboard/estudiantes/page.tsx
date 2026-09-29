@@ -13,7 +13,7 @@ type Estudiante = {
 
 type Curso = {
   id: string;
-  descripcion: string;
+  nombre: string | null;
 };
 
 export default function EstudiantesPage() {
@@ -38,7 +38,7 @@ export default function EstudiantesPage() {
   const fetchData = async () => {
     setLoading(true);
     // Fetch cursos
-    const { data: cData } = await supabase.from("cursos").select("id, descripcion");
+    const { data: cData } = await supabase.from("cursos").select("id, nombre");
     if (cData) setCursos(cData);
 
     // Fetch estudiantes
@@ -237,7 +237,7 @@ export default function EstudiantesPage() {
                   <option value="">-- Sin asignar --</option>
                   {cursos.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.id} {c.descripcion ? `(${c.descripcion})` : ""}
+                      {c.id} {c.nombre ? `(${c.nombre})` : ""}
                     </option>
                   ))}
                 </select>

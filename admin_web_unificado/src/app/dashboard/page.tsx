@@ -82,7 +82,7 @@ export default function DashboardPage() {
         .channel(`asistencia-channel-${camaraSel}`)
         .on(
           "postgres_changes",
-          { event: "*", schema: "public", table: "asistencia" },
+          { event: "*", schema: "public", table: "historial_eventos" },
           () => {
             fetchEstadisticas(camaraSel, fecha, jornada);
           }

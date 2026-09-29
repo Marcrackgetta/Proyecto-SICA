@@ -214,16 +214,7 @@ class SupabaseClient:
         """Obtiene la lista de estudiantes matriculados."""
         return self._get("estudiantes?select=cedula,curso_id,representante_uid")
 
-    def fetch_asistencia_hoy(self, fecha: str) -> list[dict[str, Any]]:
-        """Obtiene los registros de asistencia de un dia especifico."""
-        return self._get(f"asistencia?fecha=eq.{fecha}&select=estudiante_cedula,estado,hora_clase")
 
-    def registrar_asistencia_batch(self, registros: list[dict[str, Any]]) -> bool:
-        """
-        [DEPRECADO] Método antiguo de inserción por lotes.
-        Mantenido solo por compatibilidad, pero la nueva arquitectura usa reportar_deteccion().
-        """
-        return True
 
     def reportar_deteccion(self, cedula: str, camara_id: str, timestamp_iso: str) -> bool:
         """

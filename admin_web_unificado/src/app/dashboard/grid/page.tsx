@@ -30,15 +30,15 @@ export default function GridPage() {
   useEffect(() => {
     fetchData();
 
-    // Suscripción global a asistencias para actualizar el grid en vivo
+    // Suscripción global a historial_eventos para actualizar el grid en vivo
     const channel = supabase
       .channel('grid-asistencia')
       .on(
         'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'asistencia' },
+        { event: 'INSERT', schema: 'public', table: 'historial_eventos' },
         (payload) => {
           console.log("Nuevo evento en grid:", payload.new);
-          fetchData(); // Recargamos para simplificar, en prod sería mejor actualizar solo el estado local
+          fetchData(); // Recargamos para simplificar
         }
       )
       .subscribe();
@@ -54,29 +54,43 @@ export default function GridPage() {
     const { data: camData } = await supabase.from("camaras").select("*").order("id");
     if (camData) setCamaras(camData);
 
-    // 2. Obtener cursos vinculados
+    // 2. Obtener cursos vinculados para el filtro de presentes/fugados
     const { data: curData } = await supabase.from("cursos").select("*");
     
-    // 3. Obtener asistencias del día actual
-    const { data: asisData } = await supabase
-      .from("asistencia")
-      .select("estado, curso_id")
+    // 3. Obtener asistencias y eventos del día actual
+    const { data: asisDiaria } = await supabase
+      .from("asistencia_diaria")
+      .select("estudiante_cedula, estado_ubicacion, estudiantes!inner(curso_id)")
+      .eq("fecha", fecha);
+      
+    const { data: eventos } = await supabase
+      .from("historial_eventos")
+      .select("estado_consolidado, camara_id, estudiantes!inner(curso_id)")
       .eq("fecha", fecha);
 
-    if (camData && curData && asisData) {
+    if (camData) {
       const newStats: CameraStats = {};
       camData.forEach(cam => {
         newStats[cam.id] = { presentes: 0, intrusos: 0, fugados: 0 };
-        const cursoVinculado = curData.find(c => c.camara_id === cam.id);
-        if (cursoVinculado) {
-          const eventosCamara = asisData.filter(a => a.curso_id === cursoVinculado.id);
-          eventosCamara.forEach(ev => {
-            let estado = ev.estado;
-            if (estado === "Atrasado") estado = "Presente";
-            if (estado === "Presente") newStats[cam.id].presentes++;
-            if (estado === "Intruso") newStats[cam.id].intrusos++;
-            if (estado === "Fugado") newStats[cam.id].fugados++;
-          });
+        const cursoVinculado = curData?.find(c => c.camara_id === cam.id);
+        
+        // Presentes: basados en asistencia_diaria para el curso asociado a la cámara
+        if (cursoVinculado && asisDiaria) {
+          const presentesCurso = asisDiaria.filter((a: any) => a.estudiantes?.curso_id === cursoVinculado.id);
+          newStats[cam.id].presentes = presentesCurso.length;
+        }
+
+        // Anomalías: basados en historial_eventos
+        if (eventos) {
+          // Intrusos en ESTA cámara física
+          const intrusosCamara = eventos.filter((ev: any) => ev.estado_consolidado === 'Intruso' && ev.camara_id === cam.id);
+          newStats[cam.id].intrusos = intrusosCamara.length;
+
+          // Fugados del curso asociado a ESTA cámara
+          if (cursoVinculado) {
+             const fugadosCurso = eventos.filter((ev: any) => ev.estado_consolidado === 'Fugado' && ev.estudiantes?.curso_id === cursoVinculado.id);
+             newStats[cam.id].fugados = fugadosCurso.length;
+          }
         }
       });
       setStats(newStats);
