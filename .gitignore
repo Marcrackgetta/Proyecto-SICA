@@ -162,3 +162,9 @@ logs/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Documentos y archivos no funcionales al proyecto
+*.docx
+*.pdf
+*.pptx
+*.xlsx
