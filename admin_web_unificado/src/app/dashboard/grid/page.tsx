@@ -55,7 +55,7 @@ export default function GridPage() {
     if (camData) setCamaras(camData);
 
     // 2. Obtener cursos vinculados para el filtro de presentes/fugados
-    const { data: curData } = await supabase.from("cursos").select("*");
+    const { data: zonData } = await supabase.from("zonas_camaras").select("*");
     
     // 3. Obtener asistencias y eventos del día actual
     const { data: asisDiaria } = await supabase
@@ -72,11 +72,12 @@ export default function GridPage() {
       const newStats: CameraStats = {};
       camData.forEach(cam => {
         newStats[cam.id] = { presentes: 0, intrusos: 0, fugados: 0 };
-        const cursoVinculado = curData?.find(c => c.camara_id === cam.id);
+        const zonaVinculada = zonData?.find(z => z.camara_id === cam.id);
+        const curso_id = zonaVinculada ? zonaVinculada.curso_id : null;
         
         // Presentes: basados en asistencia_diaria para el curso asociado a la cámara
-        if (cursoVinculado && asisDiaria) {
-          const presentesCurso = asisDiaria.filter((a: any) => a.estudiantes?.curso_id === cursoVinculado.id);
+        if (curso_id && asisDiaria) {
+          const presentesCurso = asisDiaria.filter((a: any) => a.estudiantes?.curso_id === curso_id);
           newStats[cam.id].presentes = presentesCurso.length;
         }
 
@@ -87,8 +88,8 @@ export default function GridPage() {
           newStats[cam.id].intrusos = intrusosCamara.length;
 
           // Fugados del curso asociado a ESTA cámara
-          if (cursoVinculado) {
-             const fugadosCurso = eventos.filter((ev: any) => ev.estado_consolidado === 'Fugado' && ev.estudiantes?.curso_id === cursoVinculado.id);
+          if (curso_id) {
+             const fugadosCurso = eventos.filter((ev: any) => ev.estado_consolidado === 'Fugado' && ev.estudiantes?.curso_id === curso_id);
              newStats[cam.id].fugados = fugadosCurso.length;
           }
         }

@@ -111,13 +111,14 @@ export default function DashboardPage() {
     setHistorialHoras([]);
     setTablaRegistros([]);
 
-    const { data: curso, error: errCurso } = await supabase
-      .from("cursos")
-      .select("id")
+    const { data: zona, error: errZona } = await supabase
+      .from("zonas_camaras")
+      .select("curso_id")
       .eq("camara_id", camaraId)
       .single();
     
-    if (errCurso || !curso) return;
+    if (errZona || !zona || !zona.curso_id) return;
+    const curso = { id: zona.curso_id };
 
     // Obtener total de estudiantes matriculados en el curso para calcular Faltas y agregarlos a la tabla
     const { data: todosEstudiantes, count: totalEstudiantes } = await supabase

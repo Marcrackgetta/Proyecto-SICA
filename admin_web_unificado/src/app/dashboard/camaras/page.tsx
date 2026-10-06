@@ -33,31 +33,40 @@ export default function CamarasPage() {
     setLoading(true);
     const { data: camData } = await supabase.from("camaras").select("*").order("id");
     const { data: curData } = await supabase.from("cursos").select("*").order("id");
+    const { data: zonData } = await supabase.from("zonas_camaras").select("*");
     
     if (camData) setCamaras(camData);
-    if (curData) setCursos(curData);
+    if (curData && zonData) {
+      const merged = curData.map(c => {
+        const zone = zonData.find(z => z.curso_id === c.id);
+        return { ...c, camara_id: zone ? zone.camara_id : null };
+      });
+      setCursos(merged);
+    }
     setLoading(false);
   };
 
   const handleSaveZona = async (e: React.FormEvent) => {
     e.preventDefault();
     if (editingId) {
-      await supabase
-        .from("cursos")
-        .update({ camara_id: formData.camara_id || null })
-        .eq("id", editingId);
+      if (formData.camara_id) {
+        await supabase.from("zonas_camaras").upsert({ camara_id: formData.camara_id, curso_id: editingId, tipo: "AULA" }, { onConflict: "camara_id" });
+      } else {
+        await supabase.from("zonas_camaras").delete().eq("curso_id", editingId);
+      }
     } else {
-      await supabase.from("cursos").insert([{
-        id: formData.id,
-        camara_id: formData.camara_id || null
-      }]);
+      await supabase.from("cursos").insert([{ id: formData.id }]);
+      if (formData.camara_id) {
+        await supabase.from("zonas_camaras").upsert({ camara_id: formData.camara_id, curso_id: formData.id, tipo: "AULA" }, { onConflict: "camara_id" });
+      }
     }
     setIsModalOpen(false);
     fetchData();
   };
 
   const handleDeleteZona = async (id: string) => {
-    if (confirm("¿Seguro que deseas eliminar esta zona/curso?")) {
+    if (confirm("Seguro que deseas eliminar esta zona/curso?")) {
+      await supabase.from("zonas_camaras").delete().eq("curso_id", id);
       await supabase.from("cursos").delete().eq("id", id);
       fetchData();
     }
